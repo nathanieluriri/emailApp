@@ -164,19 +164,40 @@ class Avatar extends StatelessWidget {
   final String name;
   final double size;
 
-  static Color colorFor(String seed) => AppColors.labelColors[seed.hashCode.abs() % AppColors.labelColors.length];
+  static const colors = [
+    Color(0xFF4285F4),
+    Color(0xFF21A366),
+    Color(0xFFF5C518),
+    Color(0xFFE8544A),
+    Color(0xFFB39DDB),
+    Color(0xFFC9832B),
+    Color(0xFF4F378B),
+  ];
+
+  /// Must match MailNotifications.colorFor on Android, so a sender has one colour in the app and in notifications.
+  static Color colorFor(String seed) {
+    var h = 0;
+    for (final c in seed.codeUnits) {
+      h = (h * 31 + c) & 0x7fffffff;
+    }
+    return colors[h % colors.length];
+  }
 
   @override
   Widget build(BuildContext context) {
     final letter = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+    final fill = colorFor(name.toLowerCase());
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
-      decoration: BoxDecoration(color: colorFor(name.toLowerCase()), shape: BoxShape.circle),
+      decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
       child: Text(
         letter,
-        style: AppText.avatar.copyWith(color: Colors.white, fontSize: size * 0.42),
+        style: AppText.avatar.copyWith(
+          color: fill.computeLuminance() > 0.35 ? const Color(0xFF1C1B1F) : Colors.white,
+          fontSize: size * 0.42,
+        ),
       ),
     );
   }

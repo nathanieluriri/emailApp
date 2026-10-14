@@ -7,6 +7,8 @@ import 'package:bridgewood_mail/core/api/api_client.dart';
 import 'package:bridgewood_mail/core/db/database.dart';
 import 'package:bridgewood_mail/core/providers.dart';
 import 'package:bridgewood_mail/core/router.dart';
+import 'package:bridgewood_mail/notifications/push_service.dart';
+import 'package:bridgewood_mail/notifications/push_status.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart' hide Block;
@@ -31,6 +33,16 @@ const _second = Account(
   apiKey: 'k',
 );
 
+const _subscribed = PushStatus(permission: true, optedIn: true, id: '8f2c41d7-5b1e-4c9a-a7e3-0d6b9f12c3aa', token: 't');
+
+class _Push extends PushStatusController {
+  _Push(this.status);
+  final PushStatus status;
+
+  @override
+  PushStatus build() => status;
+}
+
 class _Accounts extends AccountsController {
   _Accounts(this.accounts);
   final List<Account> accounts;
@@ -43,6 +55,7 @@ Future<ProviderContainer> boot(
   WidgetTester tester, {
   required int theme,
   List<Account> accounts = const [_account, _second],
+  PushStatus push = _subscribed,
   bool settled = true,
 }) async {
   tester.view.physicalSize = const Size(1080, 2340);
@@ -55,6 +68,7 @@ Future<ProviderContainer> boot(
       prefsProvider.overrideWithValue(prefs),
       databaseProvider.overrideWithValue(AppDatabase(NativeDatabase.memory())),
       accountsProvider.overrideWith(() => _Accounts(accounts)),
+      pushStatusProvider.overrideWith(() => _Push(push)),
       apiProvider.overrideWith((ref) => ApiClient('https://w.test', 'k')..dio.httpClientAdapter = FakeWorker()),
     ],
   );
@@ -88,6 +102,26 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Menu'));
       await settle(tester);
       await _shot(tester, 'drawer_$mode');
+    });
+
+    testWidgets('push $mode', (tester) async {
+      await boot(tester, theme: theme, push: const PushStatus());
+      await _shot(tester, 'inbox_push_off_$mode');
+      PushService.events.add(
+        const PushEvent(
+          host: 'bridgewood-mail.example.workers.dev',
+          threadId: 't3',
+          sender: 'Adaeze Okafor',
+          subject: 'Re: Lease renewal for Lekki office',
+          snippet: 'Clause 4 works for us. Could you send the signed copy by Friday so we can file it?',
+          account: 'nathaniel@bridgewoodinvestment.ng',
+          opened: false,
+        ),
+      );
+      await settle(tester);
+      await _shot(tester, 'banner_$mode');
+      await tester.pump(const Duration(seconds: 6));
+      await settle(tester);
     });
 
     testWidgets('thread $mode', (tester) async {
@@ -154,6 +188,13 @@ void main() {
       c.read(routerProvider).push('/settings/account/a1');
       await settle(tester);
       await _shot(tester, 'account_$mode');
+    });
+
+    testWidgets('settings without a push id $mode', (tester) async {
+      final c = await boot(tester, theme: theme, push: const PushStatus(permission: true, optedIn: true));
+      c.read(routerProvider).push('/settings');
+      await settle(tester);
+      await _shot(tester, 'settings_push_$mode');
     });
 
     testWidgets('onboarding $mode', (tester) async {

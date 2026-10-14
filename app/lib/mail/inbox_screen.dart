@@ -25,6 +25,7 @@ import '../core/quire/widgets/pull_to_refresh.dart';
 import '../core/quire/widgets/skeleton.dart';
 import '../core/widgets.dart';
 import '../notifications/in_app_banner.dart';
+import '../notifications/push_card.dart';
 import '../notifications/push_service.dart';
 import '../templates/template.dart';
 import 'label_picker.dart';
@@ -61,12 +62,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
       ref.invalidate(inboxProvider);
       ref.invalidate(labelsProvider);
       if (mounted) {
-        showMailBanner(
-          context,
-          title: e.title ?? 'New mail',
-          body: e.body ?? '',
-          onTap: e.threadId == null ? null : () => context.push('/thread/${e.threadId}'),
-        );
+        showMailBanner(context, e, onTap: () => PushService.open(e));
       }
     });
   }
@@ -522,7 +518,7 @@ class _MailList extends ConsumerWidget {
                 padding: const EdgeInsets.only(bottom: 120),
                 itemCount: state.messages.length + 1 + (state.nextCursor != null ? 1 : 0),
                 itemBuilder: (context, i) {
-                  if (i == 0) return const _Tip();
+                  if (i == 0) return const PushCard(fallback: _Tip());
                   final index = i - 1;
                   if (index == state.messages.length) return const Padding(padding: EdgeInsets.all(16), child: Loader());
                   final m = state.messages[index];

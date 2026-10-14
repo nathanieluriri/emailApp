@@ -28,6 +28,10 @@ Push is required: new mail is pushed by the worker, and tapping a push opens the
 3. **iOS:** in the Apple developer portal create an APNs auth key (.p8), and upload it with the Key ID and Team ID to OneSignal (Apple iOS). In Xcode, open `ios/Runner.xcworkspace`, add the **Push Notifications** capability and **Background Modes** (Remote notifications, Background fetch, Background processing).
 4. The App ID is in `lib/core/config.dart`. The worker holds the same App ID plus a REST API key (`ONESIGNAL_APP_ID`, `ONESIGNAL_REST_KEY`, already set).
 
+How a push looks on Android: `MailNotificationExtension` (a OneSignal service extension in `android/app/src/main/kotlin`) restyles every mail push before it shows. It uses the Quirepost mark as the status bar icon (`ic_stat_onesignal_default`), the brand accent, the high-importance `mail` channel (sound and heads-up), a letter avatar for the sender in the same colours as the app, the account address as the header subtext, the subject and preview, and the last few messages of the conversation when it is a thread. Archive and Mark as read call the worker's `/actions` route in the background, and Reply opens the reply screen. A private version hides the content on the lock screen.
+
+Checking a phone: Settings, Notifications shows whether push is allowed, paused or still waiting for a push ID, sends a test notification through the worker, and shows the Push ID to search for in OneSignal (Audience, Subscriptions). The inbox shows a card to turn notifications on while they are off ("Not now" hides it for three days). If the test reports that the phone is not subscribed while notifications are allowed, the Firebase service account is missing from OneSignal (step 2).
+
 Devices are tagged `worker_host=<active account host>` and `wh_<host>=1` for every saved account; removing an account removes its tag.
 
 ## Worker

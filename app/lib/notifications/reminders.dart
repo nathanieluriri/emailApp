@@ -28,14 +28,38 @@ abstract final class Reminders {
   static final notifications = FlutterLocalNotificationsPlugin();
   static final taps = StreamController<String?>.broadcast();
   static String? launchHost;
-  static const _details = NotificationDetails(
-    android: AndroidNotificationDetails('mail', 'New mail', importance: Importance.high, priority: Priority.high),
+  static const _accent = Color(0xFF6750A4);
+  static const _daily = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'reminders',
+      'Reminders',
+      channelDescription: 'A gentle nudge when unread mail is waiting',
+      importance: Importance.low,
+      color: _accent,
+      category: AndroidNotificationCategory.reminder,
+    ),
     iOS: DarwinNotificationDetails(),
+  );
+
+  static NotificationDetails _mail(String account, List<String> lines, String title) => NotificationDetails(
+    android: AndroidNotificationDetails(
+      'mail',
+      'New mail',
+      channelDescription: 'Every new email as it arrives',
+      importance: Importance.high,
+      priority: Priority.high,
+      color: _accent,
+      category: AndroidNotificationCategory.email,
+      subText: account,
+      visibility: NotificationVisibility.private,
+      styleInformation: InboxStyleInformation(lines, htmlFormatLines: true, contentTitle: title, summaryText: account),
+    ),
+    iOS: DarwinNotificationDetails(threadIdentifier: account),
   );
 
   static Future<void> initNotifications({void Function(String? payload)? onTap}) => notifications.initialize(
     settings: const InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      android: AndroidInitializationSettings('ic_stat_onesignal_default'),
       iOS: DarwinInitializationSettings(requestAlertPermission: false, requestBadgePermission: false, requestSoundPermission: false),
     ),
     onDidReceiveNotificationResponse: (r) => onTap?.call(r.payload),
@@ -68,11 +92,16 @@ abstract final class Reminders {
       final fresh = page.messages.where((m) => m.date > lastCheck && !pushed.contains(m.id)).toList();
       if (fresh.isEmpty || pushOn) continue;
       final senders = fresh.map((m) => m.from.display).toSet().take(3).join(', ');
+      final title = '${fresh.length} new email${fresh.length == 1 ? '' : 's'}';
       await notifications.show(
         id: 1000 + i,
-        title: account.email,
-        body: 'You have ${fresh.length} new email${fresh.length == 1 ? '' : 's'} from $senders',
-        notificationDetails: _details,
+        title: title,
+        body: senders,
+        notificationDetails: _mail(
+          account.email,
+          [for (final m in fresh.take(6)) '<b>${_escape(m.from.display)}</b>  ${_escape(m.subject)}'],
+          title,
+        ),
         payload: account.host,
       );
     }
@@ -84,9 +113,11 @@ abstract final class Reminders {
         id: 999,
         title: 'Mail is waiting',
         body: '$unreadTotal unread email${unreadTotal == 1 ? ' is' : 's are'} waiting for you',
-        notificationDetails: _details,
+        notificationDetails: _daily,
       );
     }
     await prefs.setInt(_lastCheckKey, now.millisecondsSinceEpoch);
   }
+
+  static String _escape(String s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }

@@ -33,6 +33,6 @@ export async function receive(message, env, ctx) {
   });
 
   if (stored) {
-    ctx.waitUntil(notifyNewMail(env, db).catch((e) => console.error('push failed', e)));
+    ctx.waitUntil(notifyNewMail(env, db, stored).catch((e) => console.error('push failed', e)));
   }
 }

@@ -5,6 +5,7 @@ import { templates, signatures } from './content.js';
 import { upload, image } from './uploads.js';
 import { health } from './health.js';
 import { getCatchAll, setCatchAll } from './routing.js';
+import { act, testPush } from './push.js';
 
 const route = (method, path, handler, isPublic = false) => ({
   method,
@@ -42,4 +43,6 @@ export const routes = [
   route('POST', '/uploads', upload),
   route('GET', '/routing/catch-all', getCatchAll),
   route('PUT', '/routing/catch-all', setCatchAll),
+  route('POST', '/push/test', testPush),
+  route('POST', '/actions/:thread/:action', act, true),
 ];
