@@ -32,7 +32,7 @@ How a push looks on Android: `MailNotificationExtension` (a OneSignal service ex
 
 Checking a phone: Settings, Notifications shows whether push is allowed, paused or still waiting for a push ID, sends a test notification through the worker, and shows the Push ID to search for in OneSignal (Audience, Subscriptions). The inbox shows a card to turn notifications on while they are off ("Not now" hides it for three days). If the test reports that the phone is not subscribed while notifications are allowed, the Firebase service account is missing from OneSignal (step 2).
 
-Devices are tagged `worker_host=<active account host>` and `wh_<host>=1` for every saved account; removing an account removes its tag.
+Each account is a mailbox: the app sends its address as `X-Mailbox`, so it only sees mail that address received or sent. The phone registers its push subscription with each worker for the addresses signed in on it, and removing an account unregisters it.
 
 ## Worker
 

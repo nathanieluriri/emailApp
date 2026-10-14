@@ -18,13 +18,17 @@ class AccountsController extends AsyncNotifier<AccountsState> {
   final _repo = AccountsRepository();
 
   @override
-  Future<AccountsState> build() async => AccountsState(accounts: await _repo.load(), activeId: await _repo.activeId());
+  Future<AccountsState> build() async {
+    final accounts = await _repo.load();
+    PushService.register(accounts).ignore();
+    return AccountsState(accounts: accounts, activeId: await _repo.activeId());
+  }
 
-  Future<void> _commit(AccountsState next) async {
+  Future<void> _commit(AccountsState next, {Account? removed}) async {
     await _repo.save(next.accounts);
     await _repo.setActive(next.active?.id);
     state = AsyncData(next);
-    await PushService.syncTags(next.accounts, active: next.active);
+    PushService.register(next.accounts, removed: removed).ignore();
   }
 
   Future<void> add(Account account) async {
@@ -50,11 +54,16 @@ class AccountsController extends AsyncNotifier<AccountsState> {
     final removed = current.accounts.firstWhere((a) => a.id == id);
     final rest = current.accounts.where((a) => a.id != id).toList();
     await ref.read(databaseProvider).forgetAccount(id);
-    await PushService.removeTag(removed, rest);
-    await _commit(AccountsState(accounts: rest, activeId: current.activeId == id ? rest.firstOrNull?.id : current.activeId));
+    await _commit(
+      AccountsState(accounts: rest, activeId: current.activeId == id ? rest.firstOrNull?.id : current.activeId),
+      removed: removed,
+    );
   }
 
-  Account? byHost(String host) => state.value?.accounts.where((a) => a.host == host).firstOrNull;
+  Account? forPush(String host, String? address) {
+    final onHost = state.value?.accounts.where((a) => a.host == host) ?? const <Account>[];
+    return onHost.where((a) => a.email.toLowerCase() == address?.toLowerCase()).firstOrNull ?? onHost.firstOrNull;
+  }
 }
 
 final accountsProvider = AsyncNotifierProvider<AccountsController, AccountsState>(AccountsController.new);
@@ -64,5 +73,5 @@ final activeAccountProvider = Provider<Account?>((ref) => ref.watch(accountsProv
 final apiProvider = Provider<ApiClient>((ref) {
   final account = ref.watch(activeAccountProvider);
   if (account == null) throw StateError('No account');
-  return ApiClient(account.workerUrl, account.apiKey);
+  return ApiClient(account.workerUrl, account.apiKey, mailbox: account.email);
 });

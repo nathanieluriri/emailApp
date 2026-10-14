@@ -39,6 +39,7 @@ class MainActivity : FlutterActivity() {
         return mapOf(
             "action" to "reply",
             "host" to intent.getStringExtra("host"),
+            "account" to intent.getStringExtra("account"),
             "threadId" to intent.getStringExtra("threadId"),
             "messageId" to intent.getStringExtra("messageId"),
         )

@@ -13,9 +13,8 @@ async function resolveThread(db, inReplyTo, references) {
 }
 
 export async function storeMessage(db, env, m) {
-  if (m.messageIdHeader && (await db.first('SELECT id FROM messages WHERE message_id_header = ?', m.messageIdHeader))) {
-    return null;
-  }
+  const existing = m.messageIdHeader && (await db.first('SELECT id, thread_id FROM messages WHERE message_id_header = ?', m.messageIdHeader));
+  if (existing) return { id: existing.id, threadId: existing.thread_id, duplicate: true };
   const id = crypto.randomUUID();
   const now = Date.now();
   const date = m.date || now;
@@ -46,6 +45,7 @@ export async function storeMessage(db, env, m) {
       m.subject || '', snippetOf(text), m.html || null, text, date, now, m.read ? 1 : 0, attachments.length ? 1 : 0,
     ],
     ...m.labels.map((l) => ['INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?, ?)', id, l]),
+    ...m.owners.map((o) => ['INSERT OR IGNORE INTO message_owners (message_id, address, role) VALUES (?, ?, ?)', id, o.address, o.role]),
     ...attachments.map((a) => [
       'INSERT INTO attachments (id, message_id, filename, mime_type, size, content_id, r2_key) VALUES (?, ?, ?, ?, ?, ?, ?)',
       a.id, id, a.filename || 'attachment', a.mimeType || 'application/octet-stream', a.size, a.contentId || null, a.key,

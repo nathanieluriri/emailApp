@@ -29,7 +29,8 @@ class MailActionReceiver : BroadcastReceiver() {
                     doOutput = true
                     setRequestProperty("content-type", "application/json")
                 }
-                connection.outputStream.use { it.write(JSONObject().put("token", intent.getStringExtra("token")).toString().toByteArray()) }
+                val body = JSONObject().put("token", intent.getStringExtra("token")).put("address", intent.getStringExtra("account"))
+                connection.outputStream.use { it.write(body.toString().toByteArray()) }
                 connection.responseCode.also { connection.disconnect() } in 200..299
             }.getOrDefault(false)
             if (!done) {

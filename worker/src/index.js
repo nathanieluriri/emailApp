@@ -21,7 +21,8 @@ export default {
       if (!r.public && !authorized(req, env)) return json({ error: 'unauthorized' }, 401);
       try {
         const params = Object.fromEntries(Object.entries(match.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)]));
-        const result = await r.handler({ req, env, ctx, url, params, db: createDb(env), routes });
+        const mailbox = req.headers.get('x-mailbox')?.trim().toLowerCase() || null;
+        const result = await r.handler({ req, env, ctx, url, params, mailbox, db: createDb(env), routes });
         return result instanceof Response ? result : json(result);
       } catch (e) {
         if (!e.status) console.error(e);

@@ -23,7 +23,7 @@ npx wrangler secret put ONESIGNAL_REST_KEY
 npm run deploy
 ```
 
-Set `PUBLIC_HOST` in `wrangler.jsonc` to the host the app uses (workers.dev or a custom domain). Push notifications target devices tagged `worker_host=<PUBLIC_HOST>` or carrying a `wh_<PUBLIC_HOST>` tag (the app adds one per saved account). If it is empty, the worker uses the host of the last `/health` or `/senders` call.
+Set `PUBLIC_HOST` in `wrangler.jsonc` to the host the app uses (workers.dev or a custom domain). Pushes carry it so the app can open the right account. If it is empty, the worker uses the host of the last `/health` or `/senders` call.
 
 ### Email Routing (receiving)
 
@@ -56,7 +56,11 @@ npx wrangler secret put ROUTING_KEYS   # optional: only these API keys may chang
 2. Settings, Keys and IDs: copy the App ID and create a REST API key, then set both secrets above.
 3. Put the same App ID in the Flutter app config.
 
-Each new mail sends one notification per conversation (`collapse_id` `t-<threadId>`), so a busy thread updates in place instead of stacking. The payload carries the sender, subject, account address and the last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per worker host with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `mail`, a high-importance channel the app creates.
+Each new mail notifies the phones registered for the mailbox that received it (`PUT /devices/:subscriptionId`), with one notification per conversation, so a busy thread updates in place instead of stacking. The payload carries the sender, subject, mailbox address and that mailbox's last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per mailbox with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail to the same mailbox is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `mail`, a high-importance channel the app creates.
+
+## Mailboxes
+
+Every stored message records which addresses own it (`message_owners`): the delivered-to address and the To and Cc addresses of received mail, and the From address (plus the sending account) of sent mail. A request with an `X-Mailbox: <address>` header only sees that mailbox: Inbox is what it received, Sent is what it sent, and search, labels, counts and threads follow the same rule. Mail between two addresses on the domain is stored once when sent, and its delivery adds the recipient's copy. Requests without the header see everything, as before. Applying `schema.sql` again gives existing mail its owners.
 
 ## Other databases
 
@@ -64,7 +68,7 @@ Each new mail sends one notification per conversation (`collapse_id` `t-<threadI
 
 ## API
 
-All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bearer <key>`. JSON in and out, CORS open.
+All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bearer <key>`. JSON in and out, CORS open. Send `X-Mailbox: <address>` to scope a request to one mailbox.
 
 | Route | Notes |
 |---|---|
@@ -82,4 +86,5 @@ All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bea
 | `GET /img/:key` | public image for use inside sent mail |
 | `GET/PUT /routing/catch-all` | `{toWorker}`; see Catch-all override |
 | `POST /push/test` | `{subscriptionId}`: sends a sample notification to one device and returns OneSignal's error if it cannot be delivered |
-| `POST /actions/:threadId/:action` | public, `{token}` from the push payload; `read` or `archive` the conversation from a notification button |
+| `PUT /devices/:subscriptionId` | `{addresses[]}`: the mailboxes this OneSignal subscription is notified for (replaces the list) |
+| `POST /actions/:threadId/:action` | public, `{token, address}` from the push payload; `read` or `archive` that mailbox's copy of the conversation from a notification button |

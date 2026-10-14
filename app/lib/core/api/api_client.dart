@@ -31,14 +31,15 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// With a [mailbox], the worker only returns and pushes mail that address received or sent.
 class ApiClient {
-  ApiClient(String baseUrl, String? apiKey)
+  ApiClient(String baseUrl, String? apiKey, {String? mailbox})
     : dio = Dio(
         BaseOptions(
           baseUrl: baseUrl.replaceAll(RegExp(r'/+$'), ''),
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 30),
-          headers: {if (apiKey != null) 'Authorization': 'Bearer $apiKey'},
+          headers: {if (apiKey != null) 'Authorization': 'Bearer $apiKey', 'X-Mailbox': ?mailbox},
         ),
       );
 
@@ -129,4 +130,7 @@ class ApiClient {
       _call(() => dio.put('/routing/catch-all', data: {'toWorker': toWorker}), (d) => Map<String, dynamic>.from(d));
 
   Future<void> testPush(String subscriptionId) => _call(() => dio.post('/push/test', data: {'subscriptionId': subscriptionId}), (_) {});
+
+  Future<void> registerDevice(String subscriptionId, Iterable<String> addresses) =>
+      _call(() => dio.put('/devices/$subscriptionId', data: {'addresses': [...addresses]}), (_) {});
 }
