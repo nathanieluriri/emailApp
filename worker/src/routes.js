@@ -4,6 +4,7 @@ import { send, reply, senders } from './send.js';
 import { templates, signatures } from './content.js';
 import { upload, image } from './uploads.js';
 import { health } from './health.js';
+import { getCatchAll, setCatchAll } from './routing.js';
 
 const route = (method, path, handler, isPublic = false) => ({
   method,
@@ -39,4 +40,6 @@ export const routes = [
   ...crudRoutes('/templates', templates),
   ...crudRoutes('/signatures', signatures),
   route('POST', '/uploads', upload),
+  route('GET', '/routing/catch-all', getCatchAll),
+  route('PUT', '/routing/catch-all', setCatchAll),
 ];

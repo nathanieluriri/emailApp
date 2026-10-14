@@ -30,6 +30,21 @@ Set `PUBLIC_HOST` in `wrangler.jsonc` to the host the app uses (workers.dev or a
 1. Dashboard: your zone, Email, Email Routing, enable it and let it add the MX and SPF records.
 2. Routing rules: add a custom address (e.g. `admin@`) or edit the catch-all, action **Send to a Worker**, worker `bridgewood-mail`.
 
+Already set up on `bridgewoodinvestment.ng`: `admin@`, `info@`, `support@` and `noreply@` go to the worker; the catch-all is left as it was.
+
+### Catch-all override
+
+`PUT /routing/catch-all {"toWorker": true}` points the zone's catch-all at the worker and saves the previous rule; `{"toWorker": false}` restores it. `GET /routing/catch-all` reports the current state. It needs:
+
+```sh
+# Cloudflare dashboard, My Profile or Account, API Tokens, Create token:
+# permissions Zone > Email Routing Rules > Edit, limited to this zone.
+npx wrangler secret put CF_API_TOKEN
+npx wrangler secret put ROUTING_KEYS   # optional: only these API keys may change routing
+```
+
+`CF_ZONE_ID` is set in `wrangler.jsonc`.
+
 ### Email Service (sending)
 
 1. Dashboard: Compute, Email Service, onboard the sending domain and add the DNS records it lists (SPF, DKIM, DMARC).
@@ -63,3 +78,4 @@ All routes except `/health` and `/img/:key` need `Authorization: Bearer <key>`. 
 | `/templates`, `/signatures` | `GET`, `POST`, `GET/PATCH/DELETE /:id` |
 | `POST /uploads` | image (raw body or multipart `file`), returns `{key, url}` |
 | `GET /img/:key` | public image for use inside sent mail |
+| `GET/PUT /routing/catch-all` | `{toWorker}`; see Catch-all override |

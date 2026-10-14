@@ -11,6 +11,7 @@
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "bridgewood-mail" }],
   "vars": {
     "ALLOWED_DOMAIN": "bridgewoodinvestment.ng",
-    "PUBLIC_HOST": "bridgewood-mail.uririnathaniel.workers.dev"
+    "PUBLIC_HOST": "bridgewood-mail.uririnathaniel.workers.dev",
+    "CF_ZONE_ID": "549e2bfed4c42e88c9f2729f23ed9eeb"
   }
 }
