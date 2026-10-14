@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/api/api_client.dart';
@@ -28,6 +29,13 @@ const _checkFixes = {
   'email': 'send_email binding EMAIL is missing',
   'onesignal': 'Secrets ONESIGNAL_APP_ID and ONESIGNAL_REST_KEY are not set on the worker',
 };
+
+/// The domain a server sends from, read from its public /health, or null when it cannot be read.
+final serverDomainProvider = FutureProvider.autoDispose.family<String?, String>((ref, url) async {
+  if (!(Uri.tryParse(url)?.host.isNotEmpty ?? false)) return null;
+  final domain = '${(await ApiClient(url, null).health())['domain'] ?? ''}'.trim().toLowerCase();
+  return domain.isEmpty ? null : domain;
+});
 
 Future<HealthReport> checkWorker(String url) async {
   try {

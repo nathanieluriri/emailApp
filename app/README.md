@@ -17,7 +17,7 @@ flutter test test/brand --update-goldens     # re-render the mark the launcher i
 
 Adding an account works like Outlook: enter your email, then the worker's access key, then the display name recipients see next to your address. A custom worker is under "Use a custom server".
 
-The default worker URL lives in `lib/core/config.dart` (`https://bridgewood-mail.<SUBDOMAIN>.workers.dev`, subdomain `uririnathaniel`). Onboarding checks it through `GET /health`, then asks for one of the worker's `API_KEYS` and verifies it with `GET /senders`. A custom worker must pass every route and check in the list, or onboarding says exactly what is missing.
+The default worker URL lives in `lib/core/config.dart` (`https://bridgewood-mail.<SUBDOMAIN>.workers.dev`, subdomain `uririnathaniel`). Onboarding reads the server's domain from `GET /health`, so you only type your name: the rest of the address shows faintly, and swiping right across the field, pressing Tab or tapping the suggestion completes it with a goo hop modelled on Quire's spreadsheet selection. It then asks for one of the worker's `API_KEYS`, verifies it with `GET /senders`, and fills your display name with the one the server already knows for that address. A custom worker must pass every route and check in the list, or onboarding says exactly what is missing.
 
 ## OneSignal
 
@@ -45,4 +45,4 @@ See `../worker/README.md` for D1, R2, Email Routing, Email Service and secrets. 
 - Offline: inbox lists and threads are cached in drift and shown first; drafts autosave locally.
 - Conversations: list rows are threads ("Adaeze, me 3"), and archive, delete, star, read and labels act on the whole thread.
 - Reactions: the smiley on a message (or in the bottom bar, for the latest message) opens Gmail's reaction bar. The six quick reactions are Noto's animated emoji (Lottie files in `assets/emoji`, from Google's Noto Emoji Animation, CC BY 4.0); 🎉 throws confetti. A reaction waits out a few seconds with Undo before it is emailed, and keeps waiting if you leave the thread.
-- Reminders: a workmanager task (default every 30 minutes, adjustable or off in Settings) checks unread mail and only notifies when OneSignal push is off, plus one daily reminder when unread mail is waiting.
+- Reminders: the worker pushes unread mail again an hour after it arrives and the next day, in the phone's daytime; Settings, "Remind me about unread mail" turns it off. For mailboxes the worker has not linked to this phone, a workmanager task (default every 30 minutes) notifies about new mail and once a day lists what is still unread.

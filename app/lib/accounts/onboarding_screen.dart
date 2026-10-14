@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +20,7 @@ import '../notifications/push_service.dart';
 import '../notifications/reminders.dart';
 import 'account.dart';
 import 'accounts_controller.dart';
+import 'domain_field.dart';
 import 'health_check.dart';
 
 final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
@@ -39,6 +42,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _server = TextEditingController(text: AppConfig.defaultWorkerUrl);
   final _key = TextEditingController();
   final _name = TextEditingController();
+  final _emailField = GlobalKey<DomainFieldState>();
+  Timer? _serverPause;
+  late String _domainUrl = _workerUrl;
   bool _customServer = false;
   bool _busy = false;
   bool _showChecks = false;
@@ -54,15 +60,23 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     for (final c in [_email, _key, _name]) {
       c.addListener(() => setState(() => _error = null));
     }
+    _server.addListener(() {
+      _serverPause?.cancel();
+      _serverPause = Timer(const Duration(milliseconds: 600), () => setState(() => _domainUrl = _workerUrl));
+    });
   }
 
   @override
   void dispose() {
+    _serverPause?.cancel();
     for (final c in [_email, _server, _key, _name]) {
       c.dispose();
     }
     super.dispose();
   }
+
+  /// The chosen server's domain, which the email field offers to finish the address with.
+  String? get _domain => ref.read(serverDomainProvider(_domainUrl)).value;
 
   void _go(_Step step) {
     FocusScope.of(context).unfocus();
@@ -90,7 +104,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _submitEmail() async {
-    if (!_emailPattern.hasMatch(_address)) return _fail('Enter a full email address, like you@company.com');
+    if (!_emailPattern.hasMatch(_address)) return _fail('Enter a full email address, like you@${_domain ?? 'company.com'}');
+    if (_domain != null && !_address.endsWith('@$_domain')) return _fail('This server sends from @$_domain. Use an address on it.');
     final uri = Uri.tryParse(_workerUrl);
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return _fail('Enter the full server address, starting with https://');
     setState(() => _busy = true);
@@ -111,11 +126,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (_key.text.trim().isEmpty) return _fail('Paste your access key');
     setState(() => _busy = true);
     try {
-      final senders = await ApiClient(_workerUrl, _key.text.trim()).senders();
+      final senders = await ApiClient(_workerUrl, _key.text.trim(), mailbox: _address).senders();
       if (!_address.endsWith('@${senders.domain.toLowerCase()}')) {
         return _fail('This server only sends from @${senders.domain}. Go back and use an address on that domain.');
       }
-      if (_name.text.isEmpty) _name.text = _suggestName(_address);
+      if (_name.text.isEmpty) _name.text = senders.name.isNotEmpty ? senders.name : _suggestName(_address);
       Feel.commit.ring();
       setState(() => _busy = false);
       _go(_Step.profile);
@@ -158,6 +173,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(serverDomainProvider(_domainUrl));
     final welcome = _step == _Step.welcome;
     return Scaffold(
       appBar: welcome
@@ -191,28 +207,32 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _Step.email => _Form(
       art: const _MarkTile(icon: LucideIcons.atSign),
       title: 'What\'s your email?',
-      body: 'The address you will send from, on your company domain.',
+      body: _domain == null
+          ? 'The address you will send from, on your company domain.'
+          : 'The address you will send from. Type your name and your server adds the rest.',
       error: _error,
       action: 'Continue',
       busy: _busy,
-      onAction: _email.text.trim().isEmpty ? null : _submitEmail,
+      onAction: _email.text.trim().isEmpty ? null : () => _emailField.currentState?.complete(submit: true),
       children: [
-        TextField(
+        DomainField(
+          key: _emailField,
           controller: _email,
-          autofocus: true,
-          keyboardType: TextInputType.emailAddress,
-          autofillHints: const [AutofillHints.email],
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => _submitEmail(),
-          decoration: const InputDecoration(labelText: 'Enter your email', hintText: 'you@bridgewoodinvestment.ng'),
+          domain: _domain,
+          onSubmitted: _submitEmail,
+          decoration: InputDecoration(labelText: 'Enter your email', hintText: 'you@${_domain ?? 'company.com'}'),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton(
+            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12), minimumSize: const Size(0, 48)),
             onPressed: () {
               Feel.tap.ring();
-              setState(() => _customServer = !_customServer);
+              setState(() {
+                _customServer = !_customServer;
+                _domainUrl = _workerUrl;
+              });
             },
             child: Text(
               _customServer ? 'Use the default server' : 'Use a custom server',

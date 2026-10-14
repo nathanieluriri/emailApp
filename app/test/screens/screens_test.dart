@@ -1,5 +1,6 @@
 import 'package:bridgewood_mail/accounts/account.dart';
 import 'package:bridgewood_mail/accounts/accounts_controller.dart';
+import 'package:bridgewood_mail/accounts/health_check.dart';
 import 'package:bridgewood_mail/app.dart';
 import 'package:bridgewood_mail/compose/compose_args.dart';
 import 'package:bridgewood_mail/mail/models.dart';
@@ -11,6 +12,7 @@ import 'package:bridgewood_mail/notifications/push_service.dart';
 import 'package:bridgewood_mail/notifications/push_status.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' hide Block;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -76,6 +78,7 @@ Future<ProviderContainer> boot(
       accountsProvider.overrideWith(() => _Accounts(accounts)),
       pushStatusProvider.overrideWith(() => _Push(push)),
       apiProvider.overrideWith((ref) => ApiClient('https://w.test', 'k')..dio.httpClientAdapter = FakeWorker()),
+      serverDomainProvider.overrideWith((ref, url) async => 'bridgewoodinvestment.ng'),
     ],
   );
   addTearDown(container.dispose);
@@ -223,9 +226,18 @@ void main() {
       await _shot(tester, 'welcome_$mode');
       await tester.tap(find.text('Add account'));
       await settle(tester);
-      await tester.enterText(find.byType(TextField).first, 'nathaniel@bridgewoodinvestment.ng');
+      await tester.enterText(find.byType(TextField).first, 'nathaniel');
       await settle(tester);
       await _shot(tester, 'add_email_$mode');
+      await tester.drag(find.byType(TextField).first, const Offset(160, 0));
+      await settle(tester);
+      expect(find.text('nathaniel@bridgewoodinvestment.ng'), findsOneWidget);
+      await _shot(tester, 'add_email_done_$mode');
+      await tester.enterText(find.byType(TextField).first, 'ada');
+      await settle(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await settle(tester);
+      expect(find.text('ada@bridgewoodinvestment.ng'), findsOneWidget);
     });
   }
 }

@@ -1,6 +1,7 @@
 import { createDb } from './db.js';
 import { CORS, json } from './http.js';
 import { receive } from './inbound.js';
+import { remindUnread } from './push.js';
 import { routes } from './routes.js';
 
 function authorized(req, env) {
@@ -33,4 +34,6 @@ export default {
   },
 
   email: (message, env, ctx) => receive(message, env, ctx),
+
+  scheduled: (event, env, ctx) => ctx.waitUntil(remindUnread(env, createDb(env), event.scheduledTime)),
 };

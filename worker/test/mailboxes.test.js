@@ -17,10 +17,10 @@ register(`data:text/javascript,${encodeURIComponent(`
 const { default: worker } = await import('../src/index.js');
 import { createDb } from '../src/db.js';
 import { receive } from '../src/inbound.js';
-import { send } from '../src/send.js';
+import { send, senders } from '../src/send.js';
 import { listMessages, getThread, patchThread } from '../src/mail.js';
 import { listLabels } from '../src/labels.js';
-import { registerDevice, act } from '../src/push.js';
+import { registerDevice, act, remindUnread } from '../src/push.js';
 import { routeHere } from '../src/routing.js';
 import { react } from '../src/reactions.js';
 
@@ -273,4 +273,44 @@ test('my reply brings its conversation back to the top of the inbox, showing wha
   assert.deepEqual(after.map((m) => [m.subject, m.direction, m.snippet, m.threadCount]), [['Re: Lunch', 'out', 'Yes, 1pm', 2], ['Report', 'in', 'See attached', 1]]);
   assert.deepEqual(after[0].participants.map((p) => [p.name, p.me]), [['Ola', false], ['Zed', true]]);
   assert.deepEqual(await list('zed@bw.ng', 'sent'), ['out:Re: Lunch:2']);
+});
+
+test('unread mail comes back an hour after it lands and once more a day later, in daytime only', async () => {
+  const base = Date.now();
+  const t1 = base + 2 * 3_600_000;
+  const offsetFor = (hour, at) => {
+    const shift = (((hour - new Date(at).getUTCHours()) % 24) + 24) % 24;
+    return (shift > 12 ? shift - 24 : shift) * 60;
+  };
+  await registerDevice({ env, db, ctx, req: req({ addresses: ['kemi@bw.ng'], utcOffset: offsetFor(12, t1) }), params: { id: 'phone-kemi' } });
+  await registerDevice({ env, db, ctx, req: req({ addresses: ['lola@bw.ng'], utcOffset: offsetFor(2, t1) }), params: { id: 'phone-lola' } });
+  await arrive('kemi@bw.ng', { from: 'Tola <tola@x.com>', to: 'kemi@bw.ng', subject: 'Invoice', body: 'Please pay' });
+  await arrive('kemi@bw.ng', { from: 'Ife <ife@x.com>', to: 'kemi@bw.ng', subject: 'Lunch?', body: 'Free today?' });
+  await arrive('lola@bw.ng', { from: 'Tola <tola@x.com>', to: 'lola@bw.ng', subject: 'Hello', body: 'Hi' });
+  pushes.splice(0);
+  const phones = ['phone-kemi', 'phone-lola'];
+  const ours = () => pushes.splice(0).filter((p) => phones.includes(p.include_aliases.external_id[0]));
+  const remind = async (at) => {
+    await remindUnread(env, db, at);
+    return ours().map((p) => [p.include_aliases.external_id[0], p.data.kind, p.data.reminder ?? 0, p.data.subject]);
+  };
+
+  assert.deepEqual(await remind(base + 30 * 60_000), []);
+  assert.deepEqual(await remind(t1), [['phone-kemi', 'unread', 0, '2 unread emails']]);
+  assert.deepEqual(await remind(t1 + 30 * 60_000), []);
+  assert.deepEqual(await remind(t1 + 10 * 3_600_000), [['phone-lola', 'mail', 1, 'Hello']]);
+
+  const lunch = await db.first("SELECT thread_id FROM messages WHERE subject = 'Lunch?'");
+  await patchThread({ db, mailbox: 'kemi@bw.ng', req: req({ read: true }), params: { id: lunch.thread_id } });
+  await remindUnread(env, db, t1 + 23 * 3_600_000);
+  const again = ours();
+  assert.deepEqual(again.map((p) => [p.include_aliases.external_id[0], p.data.kind, p.data.subject]), [['phone-kemi', 'mail', 'Invoice']]);
+  assert.match(again[0].data.token, /^[0-9a-z]+\.[\w-]+$/);
+  assert.deepEqual(await remind(t1 + 47 * 3_600_000), []);
+});
+
+test('the server tells the app the name an address goes by', async () => {
+  const name = async (mailbox) => (await senders({ env, db, ctx, url: new URL('https://w.dev/senders'), mailbox })).name;
+  await arrive('yemi@bw.ng', { from: 'Tola <tola@x.com>', to: 'Yemi Ade <yemi@bw.ng>', subject: 'Welcome', body: 'Hi Yemi' });
+  assert.deepEqual([await name('amy@bw.ng'), await name('yemi@bw.ng'), await name('kemi@bw.ng')], ['Amy', 'Yemi Ade', '']);
 });

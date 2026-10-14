@@ -4,6 +4,11 @@ import { replyTo } from './send.js';
 
 const QUIET_MS = 60_000;
 const EARLIER_LINES = 3;
+const REMIND_AFTER = [3_600_000, 86_400_000];
+const REMIND_GAP = 12 * 3_600_000;
+const REMIND_WITHIN = 3 * 86_400_000;
+const AWAKE_HOURS = [8, 21];
+const LIST_LINES = 6;
 const enc = new TextEncoder();
 
 const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s || '');
@@ -53,7 +58,7 @@ async function send(env, body) {
   return out;
 }
 
-function mailNotification({ host, account, messages, quiet, token, kind = 'mail' }) {
+function mailNotification({ host, account, messages, quiet, token, kind = 'mail', reminder = false }) {
   const latest = messages[messages.length - 1];
   const subject = latest.subject || '(no subject)';
   return {
@@ -69,6 +74,7 @@ function mailNotification({ host, account, messages, quiet, token, kind = 'mail'
       subject: clip(subject, 120),
       quiet: quiet ? 1 : 0,
       ...(token && { token }),
+      ...(reminder && { reminder: 1 }),
       lines: messages.map((m) => ({
         from: sender(m),
         address: m.from_addr,
@@ -98,12 +104,6 @@ export async function notifyNewMail(env, db, id, addresses) {
   for (const account of addresses) {
     const devices = await db.all('SELECT device_id FROM device_mailboxes WHERE address = ?', account);
     if (!devices.length) continue;
-    const earlier = await db.all(
-      `SELECT m.id, m.thread_id, m.direction, m.from_addr, m.from_name, m.subject, m.snippet, m.date FROM messages m
-       WHERE m.thread_id = ? AND m.id != ? AND m.date <= ? AND m.id IN (SELECT message_id FROM message_owners WHERE address = ?)
-       ORDER BY m.date DESC LIMIT ${EARLIER_LINES}`,
-      m.thread_id, id, m.date, account,
-    );
     const recent = await db.first(
       `SELECT count(*) AS n FROM messages m JOIN message_owners o ON o.message_id = m.id AND o.address = ? AND o.role = 'to'
        WHERE m.created_at < ? AND m.created_at > ?`,
@@ -114,12 +114,97 @@ export async function notifyNewMail(env, db, id, addresses) {
       ...mailNotification({
         host,
         account,
-        messages: [...earlier.reverse(), m],
+        messages: await withEarlier(db, m, account),
         quiet: recent.n > 0,
         token: await sign(env, m.thread_id, account),
       }),
     });
   }
+}
+
+async function withEarlier(db, m, account) {
+  const earlier = await db.all(
+    `SELECT m.id, m.thread_id, m.direction, m.from_addr, m.from_name, m.subject, m.snippet, m.date FROM messages m
+     WHERE m.thread_id = ? AND m.id != ? AND m.date <= ? AND m.id IN (SELECT message_id FROM message_owners WHERE address = ?)
+     ORDER BY m.date DESC LIMIT ${EARLIER_LINES}`,
+    m.thread_id, m.id, m.date, account,
+  );
+  return [...earlier.reverse(), m];
+}
+
+// Unread inbox mail is pushed again an hour after it arrived and once more a day later, while the phone's owner is
+// likely awake. One notification per mailbox: a single conversation comes back as itself, several as a list.
+export async function remindUnread(env, db, now = Date.now()) {
+  if (!env.ONESIGNAL_APP_ID || !env.ONESIGNAL_REST_KEY) return;
+  const host = await hostOf(env, db);
+  if (!host) return;
+  const phones = await db.all(
+    `SELECT d.address, d.device_id, coalesce(v.utc_offset, 0) AS utc_offset FROM device_mailboxes d
+     LEFT JOIN devices v ON v.device_id = d.device_id WHERE coalesce(v.remind, 1) = 1`,
+  );
+  const awake = (offset) => {
+    const hour = new Date(now + offset * 60_000).getUTCHours();
+    return hour >= AWAKE_HOURS[0] && hour < AWAKE_HOURS[1];
+  };
+  const mailboxes = new Map();
+  for (const p of phones.filter((p) => awake(p.utc_offset))) mailboxes.set(p.address, [...(mailboxes.get(p.address) ?? []), p.device_id]);
+
+  for (const [account, devices] of mailboxes) {
+    const due = await db.all(
+      `SELECT m.* FROM messages m
+       JOIN message_owners o ON o.message_id = m.id AND o.address = ? AND o.role = 'to'
+       LEFT JOIN reminders r ON r.message_id = m.id AND r.address = o.address
+       WHERE m.read = 0 AND m.created_at > ?
+         AND m.id IN (SELECT message_id FROM message_labels WHERE label_id = 'inbox')
+         AND m.id NOT IN (SELECT message_id FROM message_labels WHERE label_id IN ('trash', 'spam'))
+         AND m.id NOT IN (SELECT message_id FROM message_owners WHERE address = ? AND role = 'from')
+         AND ((r.sent IS NULL AND m.created_at <= ?) OR (r.sent = 1 AND m.created_at <= ? AND r.at <= ?))
+       ORDER BY m.date DESC`,
+      account, now - REMIND_WITHIN, account, now - REMIND_AFTER[0], now - REMIND_AFTER[1], now - REMIND_GAP,
+    );
+    if (!due.length) continue;
+    const threads = new Map();
+    for (const m of due) if (!threads.has(m.thread_id)) threads.set(m.thread_id, m);
+    const newest = [...threads.values()];
+    const [m] = newest;
+    await send(env, {
+      ...toDevices(devices),
+      ...(newest.length === 1
+        ? mailNotification({ host, account, messages: await withEarlier(db, m, account), token: await sign(env, m.thread_id, account), reminder: true })
+        : unreadList(host, account, newest)),
+    });
+    await db.batch(
+      due.map((x) => [
+        `INSERT INTO reminders (message_id, address, sent, at) VALUES (?, ?, 1, ?)
+         ON CONFLICT (message_id, address) DO UPDATE SET sent = sent + 1, at = excluded.at`,
+        x.id, account, now,
+      ]),
+    );
+  }
+}
+
+function unreadList(host, account, newest) {
+  const title = `${newest.length} unread emails`;
+  return {
+    headings: { en: title },
+    contents: { en: clip([...new Set(newest.map(sender))].join(', '), 120) },
+    data: {
+      kind: 'unread',
+      host,
+      account,
+      subject: title,
+      more: Math.max(0, newest.length - LIST_LINES),
+      lines: newest.slice(0, LIST_LINES).map((m) => ({ from: sender(m), address: m.from_addr, out: 0, text: clip(m.subject || '(no subject)', 90), at: m.date })),
+    },
+    collapse_id: `u-${fnv(account)}`,
+    android_group: account,
+    android_group_message: { en: '$[notif_count] new emails' },
+    existing_android_channel_id: 'mail',
+    priority: 10,
+    thread_id: account,
+    summary_arg: account,
+    ios_interruption_level: 'active',
+  };
 }
 
 export async function notifyReaction(env, db, target, account, who, emoji) {
@@ -141,11 +226,17 @@ export async function notifyReaction(env, db, target, account, who, emoji) {
 }
 
 export async function registerDevice({ env, db, req, params, ctx }) {
-  const { addresses = [], subscriptionId } = await req.json().catch(() => ({}));
+  const { addresses = [], subscriptionId, utcOffset = 0, remind = true } = await req.json().catch(() => ({}));
   const list = [...new Set(addresses.map((a) => String(a).trim().toLowerCase()).filter(Boolean))];
+  const offset = Number.isFinite(+utcOffset) ? Math.max(-840, Math.min(840, Math.round(+utcOffset))) : 0;
   await db.batch([
     ['DELETE FROM device_mailboxes WHERE device_id = ?', params.id],
     ...list.map((a) => ['INSERT INTO device_mailboxes (device_id, address, updated_at) VALUES (?, ?, ?)', params.id, a, Date.now()]),
+    [
+      `INSERT INTO devices (device_id, utc_offset, remind, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (device_id) DO UPDATE SET utc_offset = excluded.utc_offset, remind = excluded.remind, updated_at = excluded.updated_at`,
+      params.id, offset, remind === false ? 0 : 1, Date.now(),
+    ],
   ]);
   if (subscriptionId) ctx.waitUntil(pruneSubscriptions(env, params.id, subscriptionId).catch((e) => console.error('prune failed', e)));
   ctx.waitUntil(routeHere(env, db, list).catch((e) => console.error('routing failed', e)));

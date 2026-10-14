@@ -76,11 +76,14 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
           SettingsSwitch(
-            icon: LucideIcons.sunrise,
-            title: 'Daily reminder',
-            subtitle: 'Once a day when unread mail is waiting',
+            icon: LucideIcons.alarmClock,
+            title: 'Remind me about unread mail',
+            subtitle: 'An hour after it arrives, and again the next day',
             value: settings.dailyReminder,
-            onChanged: control.setDailyReminder,
+            onChanged: (on) async {
+              await control.setDailyReminder(on);
+              await PushService.register(state?.accounts ?? const []);
+            },
           ),
           const SettingsSection('Appearance'),
           Padding(

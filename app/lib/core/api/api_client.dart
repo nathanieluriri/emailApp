@@ -145,8 +145,23 @@ class ApiClient {
   Future<List<String>> testPush(String device) =>
       _call(() => dio.post('/push/test', data: {'device': device}), (d) => [...(d['linked'] as List? ?? const []).cast<String>()]);
 
-  Future<List<String>> registerDevice(String device, Iterable<String> addresses, {String? subscriptionId}) => _call(
-    () => dio.put('/devices/$device', data: {'addresses': [...addresses], 'subscriptionId': ?subscriptionId}),
+  /// [utcOffset] (minutes) lets the worker remind about unread mail in this phone's daytime; [remind] turns that off.
+  Future<List<String>> registerDevice(
+    String device,
+    Iterable<String> addresses, {
+    String? subscriptionId,
+    int utcOffset = 0,
+    bool remind = true,
+  }) => _call(
+    () => dio.put(
+      '/devices/$device',
+      data: {
+        'addresses': [...addresses],
+        'subscriptionId': ?subscriptionId,
+        'utcOffset': utcOffset,
+        'remind': remind,
+      },
+    ),
     (d) => [...(d['addresses'] as List? ?? const []).cast<String>()],
   );
 }

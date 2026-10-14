@@ -176,6 +176,7 @@ final senders = {
 final health = {
   'ok': true,
   'service': 'bridgewood-mail',
+  'domain': 'bridgewoodinvestment.ng',
   'routes': ['GET /health'],
   'checks': {'db': true, 'r2': true, 'email': true, 'onesignal': true},
 };
