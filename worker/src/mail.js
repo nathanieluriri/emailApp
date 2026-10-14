@@ -14,6 +14,8 @@ const columns = (scoped) => `m.id, m.thread_id, ${scoped ? "CASE WHEN o.from_me 
 const MINE = `JOIN (SELECT message_id, address, max(role = 'to') AS to_me, max(role = 'from') AS from_me
   FROM message_owners WHERE address = ? GROUP BY message_id) o ON o.message_id = m.id`;
 
+const UNBINNED = "m.id NOT IN (SELECT message_id FROM message_labels WHERE label_id IN ('trash', 'spam'))";
+
 const summary = (m) => ({
   id: m.id,
   threadId: m.thread_id,
@@ -31,8 +33,9 @@ const summary = (m) => ({
   labels: m.label_ids ? m.label_ids.split(',') : [],
 });
 
-const detail = (m, attachments) => ({
+const detail = (m, attachments, reactions, mailbox) => ({
   ...summary(m),
+  reactions: reactions.map((r) => ({ emoji: r.emoji, address: r.address, name: r.name || '', mine: r.address === mailbox })),
   cc: parseJson(m.cc_json, []),
   bcc: parseJson(m.bcc_json, []),
   messageIdHeader: m.message_id_header,
@@ -65,34 +68,60 @@ export async function listMessages({ db, url, mailbox }) {
     where.push('m.id IN (SELECT message_id FROM message_labels WHERE label_id = ?)');
     params.push(label);
   }
-  if (label !== 'trash' && label !== 'spam' && label !== 'all') {
-    where.push("m.id NOT IN (SELECT message_id FROM message_labels WHERE label_id IN ('trash', 'spam'))");
-  }
+  if (label !== 'trash' && label !== 'spam' && label !== 'all') where.push(UNBINNED);
   const q = s.get('q')?.trim();
   if (q) {
     where.push('m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)');
     params.push(ftsQuery(q));
   }
   if (['1', 'true'].includes(s.get('unread'))) where.push('m.read = 0');
-  const cursor = s.get('cursor');
-  if (cursor) {
-    const [date, id] = cursor.split('_');
-    where.push('(m.date < ? OR (m.date = ? AND m.id < ?))');
-    params.push(+date, +date, id);
-  }
+  const after = s.get('cursor')?.split('_');
 
+  // One row per conversation, showing its newest message as Gmail does, so my reply brings it back to the top.
+  // Sent, Trash and Spam show the newest message that is in them.
+  const own = ['sent', 'trash', 'spam'].includes(label);
+  const from = `FROM messages m ${mailbox ? MINE : ''}`;
+  const matching = `${from} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
+  const shown = own ? matching : `${from} WHERE m.thread_id IN (SELECT m.thread_id ${matching})${label === 'all' ? '' : ` AND ${UNBINNED}`}`;
   const rows = await db.all(
-    `SELECT ${columns(!!mailbox)} FROM messages m ${mailbox ? MINE : ''} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-     ORDER BY m.date DESC, m.id DESC LIMIT ${PAGE + 1}`,
+    `SELECT * FROM (
+       SELECT ${columns(!!mailbox)}, ROW_NUMBER() OVER (PARTITION BY m.thread_id ORDER BY m.date DESC, m.id DESC) AS rn ${shown}
+     ) WHERE rn = 1 ${after ? 'AND (date < ? OR (date = ? AND id < ?))' : ''}
+     ORDER BY date DESC, id DESC LIMIT ${PAGE + 1}`,
     ...(mailbox ? [mailbox] : []),
+    ...(mailbox && !own ? [mailbox] : []),
     ...params,
+    ...(after ? [+after[0], +after[0], after[1]] : []),
   );
   const page = rows.slice(0, PAGE);
   const last = page[page.length - 1];
+  const threads = await conversations(db, [...new Set(page.map((r) => r.thread_id))], mailbox);
   return {
-    messages: page.map(summary),
+    messages: page.map((m) => ({ ...summary(m), ...threads.get(m.thread_id) })),
     nextCursor: rows.length > PAGE ? `${last.date}_${last.id}` : null,
   };
+}
+
+async function conversations(db, ids, mailbox) {
+  const out = new Map();
+  if (!ids.length) return out;
+  const rows = await db.all(
+    `SELECT m.thread_id, m.from_addr, m.from_name, m.read, m.starred, m.has_attachments,
+       ${mailbox ? 'o.from_me' : "m.direction = 'out'"} AS mine
+     FROM messages m ${mailbox ? MINE : ''} WHERE m.thread_id IN (${ids.map(() => '?').join(',')}) ORDER BY m.date`,
+    ...(mailbox ? [mailbox] : []),
+    ...ids,
+  );
+  for (const r of rows) {
+    const t = out.get(r.thread_id) ?? { participants: [], read: true, starred: false, hasAttachments: false };
+    const address = r.from_addr.toLowerCase();
+    if (!t.participants.some((p) => p.address === address)) t.participants.push({ address, name: r.from_name || '', me: !!r.mine });
+    if (!r.mine && !r.read) t.read = false;
+    t.starred ||= !!r.starred;
+    t.hasAttachments ||= !!r.has_attachments;
+    out.set(r.thread_id, t);
+  }
+  return out;
 }
 
 async function loadMessages(db, column, value, mailbox) {
@@ -104,11 +133,12 @@ async function loadMessages(db, column, value, mailbox) {
   );
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
-  const atts = await db.all(
-    `SELECT * FROM attachments WHERE message_id IN (${ids.map(() => '?').join(',')})`,
-    ...ids,
+  const marks = ids.map(() => '?').join(',');
+  const atts = await db.all(`SELECT * FROM attachments WHERE message_id IN (${marks})`, ...ids);
+  const reactions = await db.all(`SELECT * FROM reactions WHERE message_id IN (${marks}) ORDER BY created_at`, ...ids);
+  return rows.map((r) =>
+    detail(r, atts.filter((a) => a.message_id === r.id), reactions.filter((x) => x.message_id === r.id), mailbox),
   );
-  return rows.map((r) => detail(r, atts.filter((a) => a.message_id === r.id)));
 }
 
 export async function getMessage({ db, params, mailbox }) {
@@ -146,6 +176,45 @@ export async function patchMessage({ db, req, params, mailbox }) {
   if (b.archived === false) stmts.push(["INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?, 'inbox')", id]);
   if (stmts.length) await db.batch(stmts);
   return getMessage({ db, params, mailbox });
+}
+
+// Applies a change to every message of a conversation the mailbox can see, the way list rows act in Gmail.
+export async function patchThread({ db, req, params, mailbox }) {
+  const b = await req.json();
+  const t = params.id;
+  const mine = (col) => (mailbox ? ` AND ${col} IN (SELECT message_id FROM message_owners WHERE address = ?)` : '');
+  const got = mailbox ? " AND id IN (SELECT message_id FROM message_owners WHERE address = ? AND role = 'to')" : " AND direction = 'in'";
+  const who = mailbox ? [mailbox] : [];
+  if (!(await db.first(`SELECT id FROM messages WHERE thread_id = ?${mine('id')} LIMIT 1`, t, ...who))) fail(404, 'thread not found');
+  const ids = `SELECT id FROM messages WHERE thread_id = ?${mine('id')}`;
+  const stmts = [];
+  if (typeof b.read === 'boolean') stmts.push([`UPDATE messages SET read = ? WHERE thread_id = ?${mine('id')}`, +b.read, t, ...who]);
+  if (b.starred === true) stmts.push([`UPDATE messages SET starred = 1 WHERE id = (${ids} ORDER BY date DESC LIMIT 1)`, t, ...who]);
+  if (b.starred === false) stmts.push([`UPDATE messages SET starred = 0 WHERE thread_id = ?${mine('id')}`, t, ...who]);
+  if (b.archived === true) {
+    stmts.push(
+      [`UPDATE messages SET archived = 1 WHERE thread_id = ?${mine('id')}`, t, ...who],
+      [`DELETE FROM message_labels WHERE label_id = 'inbox' AND message_id IN (${ids})`, t, ...who],
+    );
+  }
+  if (b.archived === false) {
+    stmts.push(
+      [`UPDATE messages SET archived = 0 WHERE thread_id = ?${got}`, t, ...who],
+      [`INSERT OR IGNORE INTO message_labels (message_id, label_id) SELECT id, 'inbox' FROM messages WHERE thread_id = ?${got}`, t, ...who],
+    );
+  }
+  for (const l of Array.isArray(b.add) ? b.add : []) {
+    stmts.push([
+      `INSERT OR IGNORE INTO message_labels (message_id, label_id) SELECT m.id, l.id FROM messages m, labels l
+       WHERE l.id = ? AND m.thread_id = ?${mine('m.id')}`,
+      l, t, ...who,
+    ]);
+  }
+  for (const l of Array.isArray(b.remove) ? b.remove : []) {
+    stmts.push([`DELETE FROM message_labels WHERE label_id = ? AND message_id IN (${ids})`, l, t, ...who]);
+  }
+  if (stmts.length) await db.batch(stmts);
+  return { ok: true };
 }
 
 export async function getAttachment({ db, env, params }) {

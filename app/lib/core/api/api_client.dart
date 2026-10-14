@@ -74,6 +74,18 @@ class ApiClient {
     (d) => Message.fromJson(d),
   );
 
+  /// Acts on every message of a conversation this mailbox can see. Starring stars the newest message.
+  Future<void> updateThread(String id, {bool? read, bool? starred, bool? archived, List<String>? add, List<String>? remove}) => _call(
+    () => dio.patch('/threads/$id', data: {'read': ?read, 'starred': ?starred, 'archived': ?archived, 'add': ?add, 'remove': ?remove}),
+    (_) {},
+  );
+
+  /// Sends a Gmail-style reaction to everyone on the message and returns its reactions.
+  Future<List<Reaction>> react(String messageId, String emoji, {String fromName = ''}) => _call(
+    () => dio.post('/messages/$messageId/react', data: {'emoji': emoji, 'fromName': fromName}),
+    (d) => [for (final r in d['reactions'] as List) Reaction.fromJson(r)],
+  );
+
   Future<Uint8List> attachment(String id) => _call(
     () => dio.get('/attachments/$id', options: Options(responseType: ResponseType.bytes)),
     (d) => Uint8List.fromList(d as List<int>),

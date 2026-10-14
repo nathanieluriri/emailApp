@@ -2,6 +2,7 @@ import PostalMime from 'postal-mime';
 import { createDb } from './db.js';
 import { storeMessage } from './store.js';
 import { notifyNewMail } from './push.js';
+import { receiveReaction } from './reactions.js';
 
 const addresses = (list) => (list || []).filter((a) => a.address).map((a) => ({ address: a.address, name: a.name || '' }));
 
@@ -12,6 +13,7 @@ export async function receive(message, env, ctx) {
   const to = addresses(mail.to);
   const cc = addresses(mail.cc);
   const delivered = message.to.toLowerCase();
+  if (await receiveReaction(env, db, ctx, mail, delivered)) return;
   const owners = [...new Set([delivered, ...[...to, ...cc].map((a) => a.address.toLowerCase())])];
 
   const stored = await storeMessage(db, env, {

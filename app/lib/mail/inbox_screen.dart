@@ -140,7 +140,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
     final inbox = ref.read(inboxProvider(label).notifier);
     try {
       await inbox.archive(m);
-      if (mounted) showToast(context, 'Archived', action: 'Undo', onAction: () => inbox.restore(m));
+      if (mounted) showToast(context, 'Archived', action: 'Undo', onAction: () => inbox.unarchive(m));
     } catch (e) {
       if (mounted) showToast(context, '$e');
     }
@@ -207,9 +207,10 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
                                 key: const ValueKey('selection'),
                                 count: _selected.length,
                                 onClose: () => setState(_selected.clear),
-                                onArchive: () => _bulk('Archived', (m) => api.updateMessage(m.id, archived: true)),
-                                onDelete: () => _bulk('Moved to Trash', (m) => api.updateMessage(m.id, labels: ['trash'])),
-                                onRead: () => _bulk('Marked as read', (m) => api.updateMessage(m.id, read: true)),
+                                onArchive: () => _bulk('Archived', (m) => api.updateThread(m.threadId, archived: true)),
+                                onDelete: () =>
+                                    _bulk('Moved to Trash', (m) => api.updateThread(m.threadId, add: ['trash'], remove: ['inbox'])),
+                                onRead: () => _bulk('Marked as read', (m) => api.updateThread(m.threadId, read: true)),
                               )
                             : const _SearchBar(key: ValueKey('search')),
                       ),
@@ -528,6 +529,7 @@ class _MailList extends ConsumerWidget {
                     index: index,
                     child: MailRow(
                       message: m,
+                      showRecipient: label == 'sent',
                       selected: selected.contains(m.id),
                       onSelect: () => onSelect(m.id),
                       onTap: () => selecting ? onSelect(m.id) : context.push('/thread/${m.threadId}?hero=${m.id}'),

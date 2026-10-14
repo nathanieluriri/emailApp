@@ -66,6 +66,12 @@ Each new mail notifies the phones registered for the mailbox that received it (`
 
 Every stored message records which addresses own it (`message_owners`): the delivered-to address and the To and Cc addresses of received mail, and the From address (plus the sending account) of sent mail. A request with an `X-Mailbox: <address>` header only sees that mailbox: Inbox is what it received, Sent is what it sent, and search, labels, counts and threads follow the same rule. Mail between two addresses on the domain is stored once when sent, and its delivery adds the recipient's copy. Requests without the header see everything, as before. Applying `schema.sql` again gives existing mail its owners.
 
+Lists are conversations, as in Gmail: `GET /messages` returns one row per thread that has mail in the folder, showing the thread's newest message (so a reply of yours brings it back to the top), with `participants` (who wrote, in order, `me` for the mailbox) and thread-wide `read`, `starred` and `hasAttachments`. Sent, Trash and Spam show the newest message that is in them. `PATCH /threads/:id` acts on every message of the conversation the mailbox can see.
+
+## Reactions
+
+Emoji reactions use Gmail's format, so they show as reactions in Gmail and as a short email elsewhere: a reply whose `multipart/alternative` carries a `text/vnd.google.email-reaction+json` part (`{"emoji","version":1}`) between the plain text and HTML, with `In-Reply-To` naming the message. Incoming reaction emails are stored as reactions on that message (and pushed quietly) instead of as new mail. `POST /messages/:id/react` sends one to everyone on the message, at most 20 people, when the mailbox is the sender or in To or Cc.
+
 ## Other databases
 
 `src/db.js` exposes `all`, `first`, `run`, `batch`. D1 is the default. Set `DB_DRIVER=libsql` with `LIBSQL_URL` and secret `LIBSQL_TOKEN` to use Turso/libSQL over HTTP (apply `schema.sql` there). Add another driver by returning the same four functions; the schema uses SQLite FTS5 for search.
@@ -80,6 +86,8 @@ All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bea
 | `GET /messages?label=&q=&unread=&cursor=` | label defaults to `inbox`; also `starred`, `all`, label ids. Returns `{messages, nextCursor}` |
 | `GET /messages/:id`, `GET /threads/:id` | full bodies and attachment metadata |
 | `PATCH /messages/:id` | `{read, starred, archived, labels[]}` |
+| `PATCH /threads/:id` | `{read, starred, archived, add[], remove[]}` for the whole conversation; `starred: true` stars its newest message, `archived: false` puts received mail back in the inbox |
+| `POST /messages/:id/react` | `{emoji, fromName}`: sends a Gmail-style reaction, returns the message's `reactions` |
 | `POST /messages/:id/reply` | `{from, fromName, html, text, cc, bcc, attachments, replyAll}` |
 | `POST /send` | `{from, fromName, to[], cc[], bcc[], subject, html, text, attachments[{filename,type,content(base64)}], inReplyTo}` |
 | `GET /attachments/:id` | raw file |
@@ -91,4 +99,4 @@ All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bea
 | `GET/PUT /routing/catch-all` | `{toWorker}`; see Catch-all override |
 | `POST /push/test` | `{device}`: sends a sample notification to one phone the same way new mail is sent, returns the mailboxes linked to it, or OneSignal's error if it cannot be delivered |
 | `PUT /devices/:deviceId` | `{addresses[], subscriptionId}`: the mailboxes this phone is notified for (replaces the list). Phones sign in to OneSignal with the device id as their External ID, so pushes target the phone, and the worker deletes the push subscriptions earlier installs left on it, keeping `subscriptionId` |
-| `POST /actions/:threadId/:action` | public, `{token, address}` from the push payload; `read` or `archive` that mailbox's copy of the conversation from a notification button |
+| `POST /actions/:threadId/:action` | public, `{token, address}` from the push payload (the token is good for 30 days); `read` or `archive` that mailbox's copy of the conversation from a notification button, or `reply` with `{text, messageId}` to answer from the notification |

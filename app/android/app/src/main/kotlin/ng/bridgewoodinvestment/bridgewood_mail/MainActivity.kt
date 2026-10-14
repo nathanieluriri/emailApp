@@ -14,7 +14,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MailNotifications.createChannel(this)
-        launch = replyOf(intent)
+        launch = composeOf(intent)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quirepost/notifications").apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -32,7 +32,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        replyOf(intent)?.let { channel?.invokeMethod("launch", it) }
+        composeOf(intent)?.let { channel?.invokeMethod("launch", it) }
     }
 
     // ANDROID_ID is fixed per device and signing key, so a reinstall keeps the same OneSignal user.
@@ -43,9 +43,9 @@ class MainActivity : FlutterActivity() {
         return "android-" + hash.take(16).joinToString("") { "%02x".format(it) }
     }
 
-    private fun replyOf(intent: Intent?): Map<String, String?>? {
-        if (intent?.action != MailNotifications.ACTION_REPLY) return null
-        MailNotifications.dismiss(this, intent.getIntExtra("id", 0))
+    // Opened from a notification whose inline reply failed: finish the reply in the composer.
+    private fun composeOf(intent: Intent?): Map<String, String?>? {
+        if (intent?.action != MailNotifications.ACTION_COMPOSE) return null
         intent.action = Intent.ACTION_MAIN
         return mapOf(
             "action" to "reply",
@@ -53,6 +53,7 @@ class MainActivity : FlutterActivity() {
             "account" to intent.getStringExtra("account"),
             "threadId" to intent.getStringExtra("threadId"),
             "messageId" to intent.getStringExtra("messageId"),
+            "text" to intent.getStringExtra(MailNotifications.KEY_TEXT),
         )
     }
 }

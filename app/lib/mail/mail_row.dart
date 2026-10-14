@@ -32,11 +32,27 @@ class MailRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final m = message;
     final unread = !m.read;
-    final name = showRecipient || m.outgoing ? 'To: ${m.to.map((a) => a.display).join(', ')}' : m.from.display;
+    final name = showRecipient ? 'To: ${m.to.map((a) => a.display).join(', ')}' : people(m);
     final strong = unread ? FontWeight.w700 : FontWeight.w400;
+    final picture = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 240),
+      transitionBuilder: (child, a) => RotationTransition(
+        turns: Tween(begin: 0.5, end: 1.0).animate(a),
+        child: ScaleTransition(scale: a, child: child),
+      ),
+      child: selected
+          ? Container(
+              key: const ValueKey('check'),
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(color: AppColors.accentBright, shape: BoxShape.circle),
+              child: Icon(LucideIcons.check, size: 20, color: AppColors.onAccentBright),
+            )
+          : Avatar(key: const ValueKey('avatar'), name: _face(m)),
+    );
     final row = PaperPress(
       onTap: onTap,
-      semanticLabel: '${m.from.display}, ${m.subject}',
+      semanticLabel: '$name, ${m.subject}',
       washRadius: 14,
       onLongPress: onSelect,
       child: AnimatedContainer(
@@ -53,25 +69,7 @@ class MailRow extends StatelessWidget {
               feel: Feel.turn,
               semanticLabel: selected ? 'Deselect' : 'Select',
               washRadius: 20,
-              child: Hero(
-                tag: 'avatar-${m.id}',
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 240),
-                  transitionBuilder: (child, a) => RotationTransition(
-                    turns: Tween(begin: 0.5, end: 1.0).animate(a),
-                    child: ScaleTransition(scale: a, child: child),
-                  ),
-                  child: selected
-                      ? Container(
-                          key: const ValueKey('check'),
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(color: AppColors.accentBright, shape: BoxShape.circle),
-                          child: Icon(LucideIcons.check, size: 20, color: AppColors.onAccentBright),
-                        )
-                      : Avatar(key: const ValueKey('avatar'), name: m.outgoing && m.to.isNotEmpty ? m.to.first.display : m.from.display),
-                ),
-              ),
+              child: m.outgoing ? picture : Hero(tag: 'avatar-${m.id}', child: picture),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -147,6 +145,21 @@ class MailRow extends StatelessWidget {
     if (onArchive == null || selected) return row;
     return SwipeActions(id: m.id, onArchive: onArchive!, onStar: onStar, starred: m.starred, child: row);
   }
+
+  String _face(Message m) {
+    if (showRecipient) return m.to.isNotEmpty ? m.to.first.display : m.from.display;
+    if (!m.outgoing) return m.from.display;
+    return m.participants.where((p) => !p.me).lastOrNull?.display ?? (m.to.isNotEmpty ? m.to.first.display : m.from.display);
+  }
+}
+
+/// Gmail's names for a conversation: one sender in full, several by first name in the order they wrote.
+String people(Message m) {
+  final all = m.participants;
+  if (all.isEmpty) return m.outgoing ? 'me' : m.from.display;
+  if (all.length == 1) return all.first.me ? 'me' : all.first.display;
+  final names = [for (final p in all) p.short];
+  return names.length > 3 ? '${names.first} .. ${names.sublist(names.length - 2).join(', ')}' : names.join(', ');
 }
 
 class _Star extends StatelessWidget {

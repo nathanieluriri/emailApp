@@ -70,7 +70,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     if (e.action != PushAction.reply || e.messageId == null) return;
     try {
       final message = await ref.read(apiProvider).message(e.messageId!);
-      router.push('/compose', extra: ComposeArgs(kind: ComposeKind.reply, source: message));
+      router.push('/compose', extra: ComposeArgs(kind: ComposeKind.reply, source: message, text: e.text));
     } catch (_) {}
   }
 
