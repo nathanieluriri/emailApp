@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../accounts/accounts_controller.dart';
 import '../core/quire/theme/colors.dart';
+import '../core/quire/theme/feedback.dart';
 import '../core/quire/theme/metrics.dart';
 import '../core/quire/theme/typography.dart';
 import '../core/quire/widgets/digit_roll.dart';
@@ -32,7 +34,7 @@ class NavDrawer extends ConsumerWidget {
     Widget row(String id, String name, IconData icon, {Color? tint, int count = 0, VoidCallback? onTap}) {
       final on = id == selected;
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.only(left: 8, right: 12),
         child: PaperPress(
           onTap: onTap ?? () => onSelect(id),
           semanticLabel: name,
@@ -65,36 +67,90 @@ class NavDrawer extends ConsumerWidget {
       child: Text(text, style: AppText.label.copyWith(color: AppColors.inkSoft)),
     );
 
+    final accounts = ref.watch(accountsProvider).value;
+    final active = accounts?.active;
     return ColoredBox(
       color: AppColors.surface,
       child: SafeArea(
         right: false,
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
+        child: Row(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(28, 18, 20, 18),
-              child: Row(
+            Container(
+              width: 68,
+              color: AppColors.ground.withValues(alpha: 0.5),
+              child: Column(
                 children: [
-                  Image.asset('assets/brand/quire-mark.png', width: 28, height: 28),
-                  const SizedBox(width: 12),
-                  Text('Bridgewood', style: AppText.wordmarkSmall.copyWith(color: AppColors.ink)),
+                  const SizedBox(height: 14),
+                  Image.asset('assets/brand/quire-mark.png', width: 30, height: 30),
+                  const SizedBox(height: 14),
+                  for (final a in accounts?.accounts ?? [])
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: PaperPress(
+                        feel: Feel.turn,
+                        semanticLabel: 'Switch to ${a.email}',
+                        washRadius: 24,
+                        onTap: () => ref.read(accountsProvider.notifier).switchTo(a.id),
+                        child: AnimatedContainer(
+                          duration: kDim,
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: a.id == active?.id ? AppColors.accentBright : Colors.transparent, width: 2),
+                          ),
+                          child: Avatar(name: a.name, size: 38),
+                        ),
+                      ),
+                    ),
+                  IconPress(
+                    icon: LucideIcons.plus,
+                    label: 'Add account',
+                    color: AppColors.inkSoft,
+                    onTap: () => onLink('/onboarding?add=1'),
+                  ),
+                  const Spacer(),
+                  IconPress(icon: LucideIcons.settings, label: 'Settings', color: AppColors.inkSoft, onTap: () => onLink('/settings')),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
-            Divider(height: 1, color: AppColors.hairline),
-            const SizedBox(height: 8),
-            for (final e in systemLabels.entries)
-              row(e.key, e.value, _icons[e.key]!, count: e.key == 'inbox' || e.key == 'spam' ? unread[e.key] ?? 0 : 0),
-            if (labels.any((l) => !l.system)) heading('Labels'),
-            for (final l in labels.where((l) => !l.system))
-              row(l.id, l.name, LucideIcons.tag, tint: parseHex(l.color, AppColors.inkSoft), count: l.unread),
-            heading('Write'),
-            row('/drafts', 'Drafts', LucideIcons.file, onTap: () => onLink('/drafts')),
-            row('/templates', 'Templates', LucideIcons.layoutTemplate, onTap: () => onLink('/templates')),
-            row('/signatures', 'Signatures', LucideIcons.signature, onTap: () => onLink('/signatures')),
-            row('/labels', 'Manage labels', LucideIcons.tags, onTap: () => onLink('/labels')),
-            row('/settings', 'Settings', LucideIcons.settings, onTap: () => onLink('/settings')),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 24),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(28, 18, 16, 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          active?.name ?? 'Mail',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.title.copyWith(color: AppColors.ink),
+                        ),
+                        Text(
+                          active?.email ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.docMeta.copyWith(color: AppColors.inkSoft),
+                        ),
+                      ],
+                    ),
+                  ),
+                  for (final e in systemLabels.entries)
+                    row(e.key, e.value, _icons[e.key]!, count: e.key == 'inbox' || e.key == 'spam' ? unread[e.key] ?? 0 : 0),
+                  row('/drafts', 'Drafts', LucideIcons.file, onTap: () => onLink('/drafts')),
+                  if (labels.any((l) => !l.system)) heading('Labels'),
+                  for (final l in labels.where((l) => !l.system))
+                    row(l.id, l.name, LucideIcons.tag, tint: parseHex(l.color, AppColors.inkSoft), count: l.unread),
+                  row('/labels', 'Manage labels', LucideIcons.tags, onTap: () => onLink('/labels')),
+                  heading('Tools'),
+                  row('/templates', 'Templates', LucideIcons.layoutTemplate, onTap: () => onLink('/templates')),
+                  row('/signatures', 'Signatures', LucideIcons.signature, onTap: () => onLink('/signatures')),
+                ],
+              ),
+            ),
           ],
         ),
       ),

@@ -88,7 +88,7 @@ class RecipientFieldState extends State<RecipientField> {
                     focusNode: _focus,
                     keyboardType: TextInputType.emailAddress,
                     style: AppText.search.copyWith(color: AppColors.ink),
-                    decoration: const InputDecoration(fillColor: Colors.transparent, contentPadding: EdgeInsets.symmetric(vertical: 14)),
+                    decoration: bareInput(),
                     onChanged: (v) {
                       if (RegExp(r'[\s,;]$').hasMatch(v)) commit();
                     },

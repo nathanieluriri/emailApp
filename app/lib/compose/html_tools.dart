@@ -85,7 +85,16 @@ String _extractAtRules(String css, List<String> sink) {
 
 String escapeHtml(String s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
-String htmlToPlain(String html) => (html_parser.parse(html).body?.text ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+String htmlToPlain(String html) {
+  final withBreaks = html
+      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+      .replaceAll(RegExp(r'</(p|div|tr|h[1-6]|li)>', caseSensitive: false), '\n');
+  return (html_parser.parse(withBreaks).body?.text ?? '')
+      .replaceAll(RegExp(r'[ \t]+'), ' ')
+      .replaceAll(RegExp(r' *\n *'), '\n')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
+}
 
 /// Quill's delta to the small set of HTML tags mail clients agree on.
 String deltaToHtml(List<dynamic> ops) {

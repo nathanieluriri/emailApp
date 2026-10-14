@@ -12,6 +12,7 @@ import '../builder/html_export.dart';
 import '../core/quire/theme/colors.dart';
 import '../core/quire/theme/feedback.dart';
 import '../core/quire/theme/typography.dart';
+import '../core/quire/widgets/press_fade.dart';
 import '../core/widgets.dart';
 import 'html_tools.dart';
 import 'preview.dart';
@@ -66,6 +67,8 @@ class BodyEditorController extends ChangeNotifier {
     mode = BodyMode.builder;
     notifyListeners();
   }
+
+  bool get isRichEmpty => quill.document.toPlainText().trim().isEmpty;
 
   bool get isEmpty => switch (mode) {
     BodyMode.rich => quill.document.toPlainText().trim().isEmpty,
@@ -126,8 +129,8 @@ class _BodyEditorState extends State<BodyEditor> {
             child: KeyedSubtree(
               key: ValueKey(c.mode),
               child: switch (c.mode) {
-                BodyMode.rich => _RichEditor(controller: c.quill),
-                BodyMode.html => _HtmlEditor(controller: c.html),
+                BodyMode.rich => RichEditor(controller: c.quill),
+                BodyMode.html => HtmlCodeEditor(controller: c.html),
                 BodyMode.builder => BuilderEditor(blocks: c.blocks, onChanged: c.setBlocks, uploadImage: widget.uploadImage),
               },
             ),
@@ -138,55 +141,160 @@ class _BodyEditorState extends State<BodyEditor> {
   );
 }
 
-class _RichEditor extends StatelessWidget {
-  const _RichEditor({required this.controller});
+/// Quill needs one focus node and scroll controller for its whole life; making them in build drops the keyboard on every keystroke.
+class RichEditor extends StatefulWidget {
+  const RichEditor({
+    super.key,
+    required this.controller,
+    this.toolbar = true,
+    this.scrollable = true,
+    this.placeholder = 'Compose email',
+    this.padding,
+  });
   final QuillController controller;
+  final bool toolbar;
+  final bool scrollable;
+  final String placeholder;
+  final EdgeInsets? padding;
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      QuillSimpleToolbar(
-        controller: controller,
-        config: const QuillSimpleToolbarConfig(
-          multiRowsDisplay: false,
-          showDividers: false,
-          showFontFamily: false,
-          showFontSize: false,
-          showSmallButton: false,
-          showInlineCode: false,
-          showBackgroundColorButton: false,
-          showClearFormat: false,
-          showAlignmentButtons: true,
-          showJustifyAlignment: false,
-          showListCheck: false,
-          showCodeBlock: false,
-          showIndent: false,
-          showSearchButton: false,
-          showSubscript: false,
-          showSuperscript: false,
-          showUndo: false,
-          showRedo: false,
+  State<RichEditor> createState() => _RichEditorState();
+}
+
+class _RichEditorState extends State<RichEditor> {
+  final _focus = FocusNode();
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final editor = QuillEditor(
+      controller: widget.controller,
+      focusNode: _focus,
+      scrollController: _scroll,
+      config: QuillEditorConfig(
+        placeholder: widget.placeholder,
+        scrollable: widget.scrollable,
+        expands: false,
+        padding: widget.padding ?? const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        customStyles: DefaultStyles(
+          paragraph: DefaultTextBlockStyle(
+            AppText.pageBody.copyWith(color: AppColors.ink),
+            HorizontalSpacing.zero,
+            const VerticalSpacing(0, 6),
+            VerticalSpacing.zero,
+            null,
+          ),
+          placeHolder: DefaultTextBlockStyle(
+            AppText.pageBody.copyWith(color: AppColors.inkFaint),
+            HorizontalSpacing.zero,
+            VerticalSpacing.zero,
+            VerticalSpacing.zero,
+            null,
+          ),
         ),
       ),
-      Expanded(
-        child: QuillEditor.basic(
-          controller: controller,
-          config: const QuillEditorConfig(placeholder: 'Compose email', padding: EdgeInsets.fromLTRB(20, 12, 20, 24)),
+    );
+    if (!widget.toolbar) return editor;
+    return Column(
+      children: [
+        FormatBar(controller: widget.controller),
+        Expanded(child: editor),
+      ],
+    );
+  }
+}
+
+/// The few formats an email needs, in one quiet row. Each lights up while the cursor sits in that format.
+class FormatBar extends StatelessWidget {
+  const FormatBar({super.key, required this.controller});
+  final QuillController controller;
+
+  void _toggle(Attribute attribute) {
+    Feel.tap.ring();
+    final on = controller.getSelectionStyle().attributes[attribute.key]?.value == attribute.value;
+    controller.formatSelection(on ? Attribute.clone(attribute, null) : attribute);
+  }
+
+  Future<void> _link(BuildContext context) async {
+    final current = controller.getSelectionStyle().attributes[Attribute.link.key]?.value as String?;
+    final url = await promptText(context, title: 'Link', initial: current ?? 'https://', action: 'Add link', hint: 'https://');
+    if (url == null) return;
+    controller.formatSelection(url.isEmpty || url == 'https://' ? Attribute.clone(Attribute.link, null) : LinkAttribute(url));
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, _) {
+      final attrs = controller.getSelectionStyle().attributes;
+      Widget button(IconData icon, String label, Attribute attribute) =>
+          _FormatButton(icon: icon, label: label, active: attrs[attribute.key]?.value == attribute.value, onTap: () => _toggle(attribute));
+      return SizedBox(
+        height: 48,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          children: [
+            button(LucideIcons.bold, 'Bold', Attribute.bold),
+            button(LucideIcons.italic, 'Italic', Attribute.italic),
+            button(LucideIcons.underline, 'Underline', Attribute.underline),
+            button(LucideIcons.list, 'Bulleted list', Attribute.ul),
+            button(LucideIcons.listOrdered, 'Numbered list', Attribute.ol),
+            button(LucideIcons.textQuote, 'Quote', Attribute.blockQuote),
+            _FormatButton(
+              icon: LucideIcons.link,
+              label: 'Link',
+              active: attrs.containsKey(Attribute.link.key),
+              onTap: () => _link(context),
+            ),
+          ],
         ),
-      ),
-    ],
+      );
+    },
   );
 }
 
-class _HtmlEditor extends StatefulWidget {
-  const _HtmlEditor({required this.controller});
+class _FormatButton extends StatelessWidget {
+  const _FormatButton({required this.icon, required this.label, required this.active, required this.onTap});
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+    child: PaperPress(
+      onTap: onTap,
+      feel: Feel.none,
+      semanticLabel: label,
+      washRadius: 10,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: 40,
+        decoration: BoxDecoration(color: active ? AppColors.accentMuted : Colors.transparent, borderRadius: BorderRadius.circular(10)),
+        child: Icon(icon, size: 19, color: active ? AppColors.accentBright : AppColors.inkSoft),
+      ),
+    ),
+  );
+}
+
+class HtmlCodeEditor extends StatefulWidget {
+  const HtmlCodeEditor({super.key, required this.controller});
   final TextEditingController controller;
 
   @override
-  State<_HtmlEditor> createState() => _HtmlEditorState();
+  State<HtmlCodeEditor> createState() => _HtmlEditorState();
 }
 
-class _HtmlEditorState extends State<_HtmlEditor> {
+class _HtmlEditorState extends State<HtmlCodeEditor> {
   bool _preview = false;
   late String _shown = widget.controller.text;
   Timer? _debounce;
@@ -287,6 +395,37 @@ class _HtmlEditorState extends State<_HtmlEditor> {
           ),
         );
       },
+    );
+  }
+}
+
+/// HTML and the block designer live here, off the everyday compose screen.
+class AdvancedEditorScreen extends StatelessWidget {
+  const AdvancedEditorScreen({super.key, required this.controller, this.uploadImage});
+  final BodyEditorController controller;
+  final Future<String?> Function()? uploadImage;
+
+  @override
+  Widget build(BuildContext context) {
+    final html = controller.mode == BodyMode.html;
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconPress(icon: LucideIcons.arrowLeft, label: 'Back to email', onTap: () => Navigator.pop(context)),
+        title: Text(html ? 'HTML editor' : 'Email designer'),
+        actions: [
+          IconPress(icon: LucideIcons.eye, label: 'Preview', onTap: () => showPreview(context, controller.render())),
+          IconPress(icon: LucideIcons.check, label: 'Done', color: AppColors.accentBright, onTap: () => Navigator.pop(context)),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: html
+            ? HtmlCodeEditor(controller: controller.html)
+            : ListenableBuilder(
+                listenable: controller,
+                builder: (_, _) => BuilderEditor(blocks: controller.blocks, onChanged: controller.setBlocks, uploadImage: uploadImage),
+              ),
+      ),
     );
   }
 }

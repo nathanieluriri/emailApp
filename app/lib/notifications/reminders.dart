@@ -70,7 +70,7 @@ abstract final class Reminders {
       final senders = fresh.map((m) => m.from.display).toSet().take(3).join(', ');
       await notifications.show(
         id: 1000 + i,
-        title: account.nickname,
+        title: account.email,
         body: 'You have ${fresh.length} new email${fresh.length == 1 ? '' : 's'} from $senders',
         notificationDetails: _details,
         payload: account.host,

@@ -13,13 +13,17 @@ import '../core/quire/theme/easings.dart';
 import '../core/quire/theme/feedback.dart';
 import '../core/quire/theme/typography.dart';
 import '../core/widgets.dart';
-import '../mail/models.dart';
 import '../notifications/push_service.dart';
 import '../notifications/reminders.dart';
 import 'account.dart';
 import 'accounts_controller.dart';
 import 'health_check.dart';
 
+final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
+enum _Step { welcome, email, key, profile, notifications }
+
+/// Add an account the way Outlook does: your address first, then access, then how you appear to others.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key, this.adding = false});
   final bool adding;
@@ -29,78 +33,112 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  late final _pages = PageController(initialPage: widget.adding ? 1 : 0);
-  final _url = TextEditingController(text: AppConfig.defaultWorkerUrl);
+  late _Step _step = widget.adding ? _Step.email : _Step.welcome;
+  final _email = TextEditingController();
+  final _server = TextEditingController(text: AppConfig.defaultWorkerUrl);
   final _key = TextEditingController();
-  final _nickname = TextEditingController(text: 'Bridgewood');
-  bool _custom = false;
+  final _name = TextEditingController();
+  bool _customServer = false;
   bool _busy = false;
+  bool _showChecks = false;
+  String? _error;
   HealthReport? _report;
-  Senders? _senders;
-  String? _keyError;
 
-  String get _workerUrl => (_custom ? _url.text.trim() : AppConfig.defaultWorkerUrl).replaceAll(RegExp(r'/+$'), '');
+  String get _workerUrl => (_customServer ? _server.text.trim() : AppConfig.defaultWorkerUrl).replaceAll(RegExp(r'/+$'), '');
+  String get _address => _email.text.trim().toLowerCase();
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [_email, _key, _name]) {
+      c.addListener(() => setState(() => _error = null));
+    }
+  }
 
   @override
   void dispose() {
-    _pages.dispose();
-    _url.dispose();
-    _key.dispose();
-    _nickname.dispose();
+    for (final c in [_email, _server, _key, _name]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  void _next() {
+  void _go(_Step step) {
     FocusScope.of(context).unfocus();
     Feel.turn.ring();
-    _pages.nextPage(duration: kPageTurn, curve: easeInOutCubic);
+    setState(() {
+      _step = step;
+      _error = null;
+    });
   }
 
-  Future<void> _checkWorker() async {
-    final uri = Uri.tryParse(_workerUrl);
-    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-      return setState(() => _report = HealthReport(const [], error: 'Enter a full URL, like https://mail.example.workers.dev'));
+  void _back() {
+    if (_step.index <= (widget.adding ? _Step.email.index : _Step.welcome.index)) {
+      if (context.canPop()) context.pop();
+      return;
     }
-    setState(() {
-      _busy = true;
-      _report = null;
-    });
-    final report = await checkWorker(_workerUrl);
-    if (!mounted) return;
+    _go(_Step.values[_step.index - 1]);
+  }
+
+  void _fail(String message) {
+    HapticFeedback.heavyImpact();
     setState(() {
       _busy = false;
-      _report = report;
+      _error = message;
     });
-    report.ok ? Feel.commit.ring() : HapticFeedback.heavyImpact();
   }
 
-  Future<void> _verifyKey() async {
-    if (_key.text.trim().isEmpty) return setState(() => _keyError = 'Paste the API key from the worker');
-    setState(() {
-      _busy = true;
-      _keyError = null;
-    });
+  Future<void> _submitEmail() async {
+    if (!_emailPattern.hasMatch(_address)) return _fail('Enter a full email address, like you@company.com');
+    final uri = Uri.tryParse(_workerUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return _fail('Enter the full server address, starting with https://');
+    setState(() => _busy = true);
+    final report = await checkWorker(_workerUrl);
+    if (!mounted) return;
+    _report = report;
+    if (!report.ok) {
+      _showChecks = true;
+      return _fail(
+        report.error ?? 'This server is missing ${report.missing.length} thing${report.missing.length == 1 ? '' : 's'}. See below.',
+      );
+    }
+    setState(() => _busy = false);
+    _go(_Step.key);
+  }
+
+  Future<void> _submitKey() async {
+    if (_key.text.trim().isEmpty) return _fail('Paste your access key');
+    setState(() => _busy = true);
     try {
       final senders = await ApiClient(_workerUrl, _key.text.trim()).senders();
-      final account = Account(
-        id: const Uuid().v4(),
-        nickname: _nickname.text.trim().isEmpty ? Uri.parse(_workerUrl).host : _nickname.text.trim(),
-        workerUrl: _workerUrl,
-        apiKey: _key.text.trim(),
-      );
-      await ref.read(accountsProvider.notifier).add(account);
+      if (!_address.endsWith('@${senders.domain.toLowerCase()}')) {
+        return _fail('This server only sends from @${senders.domain}. Go back and use an address on that domain.');
+      }
+      if (_name.text.isEmpty) _name.text = _suggestName(_address);
       Feel.commit.ring();
-      setState(() {
-        _busy = false;
-        _senders = senders;
-      });
+      setState(() => _busy = false);
+      _go(_Step.profile);
     } catch (e) {
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _busy = false;
-        _keyError = ApiException.from(e).status == 401 ? 'The worker did not accept this key' : '${ApiException.from(e)}';
-      });
+      final error = ApiException.from(e);
+      _fail(error.status == 401 ? 'That key was not accepted. Check it and try again.' : error.message);
     }
+  }
+
+  String _suggestName(String email) {
+    final local = email.split('@').first.replaceAll(RegExp(r'[._-]+'), ' ').trim();
+    return local.split(' ').where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
+  }
+
+  Future<void> _submitProfile() async {
+    if (_name.text.trim().isEmpty) return _fail('Add the name people will see');
+    await ref
+        .read(accountsProvider.notifier)
+        .add(
+          Account(id: const Uuid().v4(), email: _address, displayName: _name.text.trim(), workerUrl: _workerUrl, apiKey: _key.text.trim()),
+        );
+    Feel.commit.ring();
+    if (widget.adding && PushService.permitted) return _finish();
+    _go(_Step.notifications);
   }
 
   Future<void> _enableNotifications() async {
@@ -118,220 +156,324 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: PageView(
-        controller: _pages,
-        physics: const NeverScrollableScrollPhysics(),
-        children: [
-          _Step(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Image.asset('assets/brand/quire-mark.png', width: 96, height: 96),
-                const SizedBox(height: 12),
-                Text('Bridgewood Mail', style: AppText.markName.copyWith(color: AppColors.ink)),
-                const SizedBox(height: 14),
-                Text(
-                  'Your domain\'s mail, on your own worker',
-                  textAlign: TextAlign.center,
-                  style: AppText.display.copyWith(color: AppColors.ink),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Read, write and get notified, all through a Cloudflare worker you control.',
-                  textAlign: TextAlign.center,
-                  style: AppText.bodyTight.copyWith(color: AppColors.inkSoft),
-                ),
-                const SizedBox(height: 24),
-                PillButton(label: 'Get started', onTap: _next),
-              ],
+  Widget build(BuildContext context) {
+    final welcome = _step == _Step.welcome;
+    return Scaffold(
+      appBar: welcome
+          ? null
+          : AppBar(
+              leading: _step == _Step.notifications ? null : IconPress(icon: LucideIcons.arrowLeft, label: 'Back', onTap: _back),
+              automaticallyImplyLeading: false,
+              title: Text(_step == _Step.notifications ? 'Stay in the loop' : 'Add account'),
+            ),
+      body: SafeArea(
+        top: welcome,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 320),
+          switchInCurve: easeOutCubic,
+          switchOutCurve: easeInCubic,
+          transitionBuilder: (child, a) => FadeTransition(
+            opacity: a,
+            child: SlideTransition(
+              position: Tween(begin: const Offset(0.06, 0), end: Offset.zero).animate(a),
+              child: child,
             ),
           ),
-          _Step(
-            title: 'Connect your worker',
-            body: 'The app talks to one worker per account. The default is ready to go.',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _custom,
-                  title: Text('Use custom worker', style: AppText.rowTitle.copyWith(color: AppColors.ink)),
-                  subtitle: Text(
-                    _custom ? 'Enter its URL below' : AppConfig.defaultWorkerUrl,
-                    style: AppText.docMeta.copyWith(color: AppColors.inkSoft),
-                  ),
-                  onChanged: (v) {
-                    Feel.tap.ring();
-                    setState(() {
-                      _custom = v;
-                      _report = null;
-                    });
-                  },
-                ),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 220),
-                  child: _custom
-                      ? TextField(
-                          controller: _url,
-                          keyboardType: TextInputType.url,
-                          decoration: const InputDecoration(labelText: 'Worker URL'),
-                          onChanged: (_) => setState(() => _report = null),
-                        )
-                      : const SizedBox(width: double.infinity),
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: _report == null
-                      ? const SizedBox.shrink()
-                      : SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (!_report!.ok && _report!.error == null)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: Text(
-                                    'This worker is missing ${_report!.missing.length} thing${_report!.missing.length == 1 ? '' : 's'}. Fix them on the worker, then check again.',
-                                    style: AppText.bodyTight.copyWith(color: AppColors.damage),
-                                  ),
-                                ),
-                              HealthChecklist(report: _report!),
-                            ],
-                          ),
-                        ),
-                ),
-                Row(
-                  children: [
-                    PillButton(
-                      label: _report == null ? 'Check worker' : 'Check again',
-                      filled: _report?.ok != true,
-                      busy: _busy,
-                      onTap: _checkWorker,
-                    ),
-                    const Spacer(),
-                    if (_report?.ok == true) PillButton(label: 'Continue', icon: LucideIcons.arrowRight, onTap: _next),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          _Step(
-            title: 'Add your API key',
-            body: 'It is one of the keys in the worker\'s API_KEYS secret. It stays in this phone\'s secure storage.',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: _nickname,
-                  decoration: const InputDecoration(labelText: 'Nickname for this account'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _key,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: 'API key',
-                    errorText: _keyError,
-                    suffixIcon: IconPress(
-                      icon: LucideIcons.clipboardPaste,
-                      label: 'Paste',
-                      size: 18,
-                      onTap: () async => _key.text = (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim() ?? '',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_senders != null)
-                  Expanded(
-                    child: ListView(
-                      children: [
-                        Text('Verified. You can send as:', style: AppText.label.copyWith(color: AppColors.inkSoft)),
-                        const SizedBox(height: 8),
-                        for (final (i, s) in _senders!.senders.indexed)
-                          TweenAnimationBuilder<double>(
-                            tween: Tween(begin: 0, end: 1),
-                            duration: Duration(milliseconds: 260 + 60 * i),
-                            curve: Curves.easeOutBack,
-                            builder: (context, t, child) =>
-                                Transform.scale(scale: t.clamp(0, 2), alignment: Alignment.centerLeft, child: child),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  Icon(LucideIcons.atSign, size: 16, color: AppColors.accentBright),
-                                  const SizedBox(width: 8),
-                                  Text(s.address, style: AppText.bodyTight.copyWith(color: AppColors.ink)),
-                                ],
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  )
-                else
-                  const Spacer(),
-                Row(
-                  children: [
-                    if (_senders == null) PillButton(label: 'Verify key', busy: _busy, onTap: _verifyKey),
-                    const Spacer(),
-                    if (_senders != null)
-                      PillButton(
-                        label: 'Continue',
-                        icon: LucideIcons.arrowRight,
-                        onTap: widget.adding && PushService.permitted ? _enableNotifications : _next,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          _Step(
-            title: 'Notifications',
-            body: 'Get a push the moment mail arrives, plus a gentle reminder when unread mail is waiting.',
-            child: Column(
-              children: [
-                const Spacer(),
-                Icon(LucideIcons.bellRing, size: 72, color: AppColors.accentBright),
-                const Spacer(),
-                Row(
-                  children: [
-                    PillButton(label: 'Not now', filled: false, onTap: _finish),
-                    const Spacer(),
-                    PillButton(label: 'Allow notifications', icon: LucideIcons.bell, busy: _busy, onTap: _enableNotifications),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
+          child: KeyedSubtree(key: ValueKey(_step), child: _page()),
+        ),
       ),
+    );
+  }
+
+  Widget _page() => switch (_step) {
+    _Step.welcome => _Welcome(onStart: () => _go(_Step.email)),
+    _Step.email => _Form(
+      art: const _MarkTile(icon: LucideIcons.atSign),
+      title: 'What\'s your email?',
+      body: 'The address you will send from, on your company domain.',
+      error: _error,
+      action: 'Continue',
+      busy: _busy,
+      onAction: _email.text.trim().isEmpty ? null : _submitEmail,
+      children: [
+        TextField(
+          controller: _email,
+          autofocus: true,
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submitEmail(),
+          decoration: const InputDecoration(labelText: 'Enter your email', hintText: 'you@bridgewoodinvestment.ng'),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: () {
+              Feel.tap.ring();
+              setState(() => _customServer = !_customServer);
+            },
+            child: Text(
+              _customServer ? 'Use the default server' : 'Use a custom server',
+              style: AppText.label.copyWith(color: AppColors.accentBright),
+            ),
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: easeOutCubic,
+          child: _customServer
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: TextField(
+                    controller: _server,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(labelText: 'Server address', helperText: 'Your Cloudflare worker URL'),
+                  ),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+        if (_report != null && !_report!.ok) ...[
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () => setState(() => _showChecks = !_showChecks),
+            child: Text(
+              _showChecks ? 'Hide details' : 'Show what is missing',
+              style: AppText.label.copyWith(color: AppColors.accentBright),
+            ),
+          ),
+          if (_showChecks) HealthChecklist(report: _report!),
+        ],
+      ],
+    ),
+    _Step.key => _Form(
+      art: const _MarkTile(icon: LucideIcons.keyRound),
+      title: 'Enter your access key',
+      body:
+          'Connecting $_address to ${Uri.parse(_workerUrl).host}. The key is one of the worker\'s API_KEYS and stays in this phone\'s secure storage.',
+      error: _error,
+      action: 'Sign in',
+      busy: _busy,
+      onAction: _key.text.trim().isEmpty ? null : _submitKey,
+      children: [
+        TextField(
+          controller: _key,
+          autofocus: true,
+          obscureText: true,
+          onSubmitted: (_) => _submitKey(),
+          decoration: InputDecoration(
+            labelText: 'Access key',
+            suffixIcon: IconPress(
+              icon: LucideIcons.clipboardPaste,
+              label: 'Paste',
+              size: 18,
+              onTap: () async => _key.text = (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim() ?? '',
+            ),
+          ),
+        ),
+      ],
+    ),
+    _Step.profile => _Form(
+      art: ListenableBuilder(
+        listenable: _name,
+        builder: (_, _) => Avatar(name: _name.text.isEmpty ? _address : _name.text, size: 88),
+      ),
+      title: 'How should people see you?',
+      body: 'Your display name goes out with every email you send from this app.',
+      error: _error,
+      action: 'Done',
+      onAction: _submitProfile,
+      children: [
+        TextField(
+          controller: _name,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          onSubmitted: (_) => _submitProfile(),
+          decoration: const InputDecoration(labelText: 'Display name'),
+        ),
+        const SizedBox(height: 20),
+        ListenableBuilder(
+          listenable: _name,
+          builder: (_, _) => SenderPreview(name: _name.text.trim(), email: _address),
+        ),
+      ],
+    ),
+    _Step.notifications => _Form(
+      art: const _MarkTile(icon: LucideIcons.bellRing),
+      title: 'Know when mail arrives',
+      body: 'Get a notification the moment new mail lands, and a gentle nudge when unread mail is waiting.',
+      action: 'Turn on notifications',
+      busy: _busy,
+      onAction: _enableNotifications,
+      secondary: 'Not now',
+      onSecondary: _finish,
+      children: const [],
+    ),
+  };
+}
+
+class _Welcome extends StatelessWidget {
+  const _Welcome({required this.onStart});
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+    child: Column(
+      children: [
+        const Spacer(flex: 3),
+        Image.asset('assets/brand/quire-mark.png', width: 104, height: 104, filterQuality: FilterQuality.medium),
+        const SizedBox(height: 16),
+        Text('Bridgewood Mail', style: AppText.markName.copyWith(color: AppColors.ink)),
+        const SizedBox(height: 10),
+        Text(
+          'Your company mail, on your own server.',
+          textAlign: TextAlign.center,
+          style: AppText.bodyTight.copyWith(color: AppColors.inkSoft, fontSize: 15),
+        ),
+        const Spacer(flex: 4),
+        PillButton(label: 'Add account', expand: true, onTap: onStart),
+      ],
     ),
   );
 }
 
-const kPageTurn = Duration(milliseconds: 420);
-
-class _Step extends StatelessWidget {
-  const _Step({required this.child, this.title, this.body});
-  final Widget child;
-  final String? title;
-  final String? body;
+class _MarkTile extends StatelessWidget {
+  const _MarkTile({required this.icon});
+  final IconData icon;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+  Widget build(BuildContext context) => Container(
+    width: 72,
+    height: 72,
+    decoration: BoxDecoration(color: AppColors.accentMuted, borderRadius: BorderRadius.circular(22)),
+    child: Icon(icon, size: 32, color: AppColors.accentBright),
+  );
+}
+
+/// One step: art, a headline, one line of why, the fields, and a full-width action at the bottom.
+class _Form extends StatelessWidget {
+  const _Form({
+    required this.art,
+    required this.title,
+    required this.body,
+    required this.children,
+    required this.action,
+    required this.onAction,
+    this.error,
+    this.busy = false,
+    this.secondary,
+    this.onSecondary,
+  });
+
+  final Widget art;
+  final String title;
+  final String body;
+  final List<Widget> children;
+  final String action;
+  final VoidCallback? onAction;
+  final String? error;
+  final bool busy;
+  final String? secondary;
+  final VoidCallback? onSecondary;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Expanded(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+          children: [
+            Align(alignment: Alignment.centerLeft, child: art),
+            const SizedBox(height: 24),
+            Text(title, style: AppText.display.copyWith(color: AppColors.ink)),
+            const SizedBox(height: 8),
+            Text(body, style: AppText.bodyTight.copyWith(color: AppColors.inkSoft, fontSize: 15, height: 1.4)),
+            const SizedBox(height: 28),
+            ...children,
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              child: error == null
+                  ? const SizedBox(width: double.infinity)
+                  : Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(LucideIcons.circleAlert, size: 18, color: AppColors.damage),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(error!, style: AppText.bodyTight.copyWith(color: AppColors.damage)),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+        child: Column(
+          children: [
+            PillButton(label: action, expand: true, busy: busy, onTap: onAction),
+            if (secondary != null) ...[
+              const SizedBox(height: 8),
+              PillButton(label: secondary!, expand: true, filled: false, onTap: onSecondary),
+            ],
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+/// What the recipient's inbox shows for a message from this account.
+class SenderPreview extends StatelessWidget {
+  const SenderPreview({super.key, required this.name, required this.email});
+  final String name;
+  final String email;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(16)),
     child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (title != null) ...[
-          Text(title!, style: AppText.display.copyWith(color: AppColors.ink)),
-          const SizedBox(height: 6),
-          Text(body ?? '', style: AppText.bodyTight.copyWith(color: AppColors.inkSoft)),
-          const SizedBox(height: 20),
-        ],
-        Expanded(child: child),
+        Text('IN THEIR INBOX', style: AppText.chipLabel.copyWith(color: AppColors.inkFaint)),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Avatar(name: name.isEmpty ? email : name),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? email : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.rowTitle.copyWith(color: AppColors.ink, fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    '<$email>',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.docMeta.copyWith(color: AppColors.inkSoft),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Quarterly update',
+                    style: AppText.bodyTight.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ],
     ),
   );
