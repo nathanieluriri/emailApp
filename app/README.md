@@ -1,6 +1,6 @@
-# Bridgewood Mail app
+# Quirepost
 
-Flutter client (Android and iOS) for the `bridgewood-mail` Cloudflare worker in `../worker`. It follows Gmail's mobile layout, uses Quire's colours, type, motion and haptics, and supports several worker accounts.
+Quirepost is the Flutter client (Android and iOS) for the `bridgewood-mail` Cloudflare worker in `../worker`. It follows Gmail's mobile layout, uses Quire's colours, type, motion and haptics, and supports several worker accounts.
 
 ## Run
 
@@ -12,6 +12,7 @@ dart run build_runner build --delete-conflicting-outputs   # json_serializable a
 flutter run   # OneSignal App ID is set in lib/core/config.dart; override with --dart-define=ONESIGNAL_APP_ID=...
 flutter analyze && flutter test
 flutter test test/screens --update-goldens   # re-render the screen screenshots in test/screens/goldens (light and dark)
+flutter test test/brand --update-goldens     # re-render the mark the launcher icons are cut from
 ```
 
 Adding an account works like Outlook: enter your email, then the worker's access key, then the display name recipients see next to your address. A custom worker is under "Use a custom server".

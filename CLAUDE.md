@@ -1,6 +1,6 @@
 # emailApp
 
-An email client modeled on Gmail's design, with Quire's branding and motion.
+Quirepost: an email client modeled on Gmail's design, with Quire's branding and motion. The mark is Quire's four panes with the last one folded into an envelope (`app/lib/core/brand.dart`).
 
 ## Projects
 

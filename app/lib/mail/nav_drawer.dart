@@ -11,6 +11,7 @@ import '../core/quire/widgets/digit_roll.dart';
 import '../core/quire/widgets/press_fade.dart';
 import '../core/widgets.dart';
 import 'mail_providers.dart';
+import '../core/brand.dart';
 
 const _icons = {
   'inbox': LucideIcons.inbox,
@@ -81,7 +82,7 @@ class NavDrawer extends ConsumerWidget {
               child: Column(
                 children: [
                   const SizedBox(height: 14),
-                  Image.asset('assets/brand/quire-mark.png', width: 30, height: 30),
+                  const BrandMark(size: 30),
                   const SizedBox(height: 14),
                   for (final a in accounts?.accounts ?? [])
                     Padding(

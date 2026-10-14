@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../compose/compose_args.dart';
+import '../core/goo_menu.dart';
 import '../core/motion.dart';
 import '../core/quire/theme/colors.dart';
 import '../core/quire/theme/feedback.dart';
@@ -63,76 +64,39 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
     extra: ComposeArgs(kind: kind, source: m),
   );
 
-  void _menu(MailThread t) {
+  Future<void> _menu(BuildContext anchor, MailThread t) async {
     final api = ref.read(mailRepositoryProvider).api;
     final last = t.messages.last;
-    showQuireSheet(
-      context,
-      (sheet) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SheetRow(
-            label: 'Label as',
-            icon: LucideIcons.tag,
-            onTap: () async {
-              Navigator.pop(sheet);
-              final labels = await pickLabels(context, last.labels);
-              if (labels != null) {
-                await _act('Labels updated', () => _each(t, (m) => api.updateMessage(m.id, labels: labels)), leave: false);
-              }
-            },
-          ),
-          SheetRow(
-            label: last.starred ? 'Remove star' : 'Add star',
-            icon: LucideIcons.star,
-            onTap: () {
-              Navigator.pop(sheet);
-              _act(
-                last.starred ? 'Star removed' : 'Starred',
-                () => api.updateMessage(last.id, starred: !last.starred),
-                leave: false,
-              ).then((_) => ref.invalidate(threadProvider(widget.threadId)));
-            },
-          ),
-          SheetRow(
-            label: 'Mark unread',
-            icon: LucideIcons.mailOpen,
-            onTap: () {
-              Navigator.pop(sheet);
-              _act('Marked unread', () => api.updateMessage(last.id, read: false));
-            },
-          ),
-          SheetRow(
-            label: 'Forward',
-            icon: LucideIcons.forward,
-            onTap: () {
-              Navigator.pop(sheet);
-              _compose(ComposeKind.forward, last);
-            },
-          ),
-          if (last.labels.contains('spam'))
-            SheetRow(
-              label: 'Report not spam',
-              icon: LucideIcons.shieldCheck,
-              onTap: () {
-                Navigator.pop(sheet);
-                _act('Moved to Inbox', () => _each(t, (m) => api.updateMessage(m.id, labels: ['inbox'])));
-              },
-            )
-          else
-            SheetRow(
-              label: 'Report spam',
-              icon: LucideIcons.octagonAlert,
-              destructive: true,
-              onTap: () {
-                Navigator.pop(sheet);
-                _act('Moved to Spam', () => _each(t, (m) => api.updateMessage(m.id, labels: ['spam'])));
-              },
-            ),
-          const SizedBox(height: 8),
-        ],
+    final spam = last.labels.contains('spam');
+    final picked = await showGooMenu(anchor, [
+      const GooMenuItem(label: 'Label as', icon: LucideIcons.tag),
+      GooMenuItem(label: last.starred ? 'Remove star' : 'Add star', icon: LucideIcons.star),
+      const GooMenuItem(label: 'Mark unread', icon: LucideIcons.mailOpen),
+      const GooMenuItem(label: 'Forward', icon: LucideIcons.forward),
+      GooMenuItem(
+        label: spam ? 'Not spam' : 'Report spam',
+        icon: spam ? LucideIcons.shieldCheck : LucideIcons.octagonAlert,
+        destructive: !spam,
       ),
-    );
+    ]);
+    if (!mounted) return;
+    switch (picked) {
+      case 0:
+        final labels = await pickLabels(context, last.labels);
+        if (labels != null) await _act('Labels updated', () => _each(t, (m) => api.updateMessage(m.id, labels: labels)), leave: false);
+      case 1:
+        await _act(last.starred ? 'Star removed' : 'Starred', () => api.updateMessage(last.id, starred: !last.starred), leave: false);
+        ref.invalidate(threadProvider(widget.threadId));
+      case 2:
+        await _act('Marked unread', () => api.updateMessage(last.id, read: false));
+      case 3:
+        _compose(ComposeKind.forward, last);
+      case 4:
+        await _act(
+          spam ? 'Moved to Inbox' : 'Moved to Spam',
+          () => _each(t, (m) => api.updateMessage(m.id, labels: [spam ? 'inbox' : 'spam'])),
+        );
+    }
   }
 
   @override
@@ -162,7 +126,9 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
                   label: 'Mark unread',
                   onTap: () => _act('Marked unread', () => api.updateMessage(t.messages.last.id, read: false)),
                 ),
-                IconPress(icon: LucideIcons.ellipsisVertical, label: 'More', onTap: () => _menu(t)),
+                Builder(
+                  builder: (anchor) => IconPress(icon: LucideIcons.ellipsisVertical, label: 'More', onTap: () => _menu(anchor, t)),
+                ),
               ],
       ),
       body: switch (thread) {

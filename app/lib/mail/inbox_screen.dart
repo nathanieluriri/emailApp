@@ -9,24 +9,32 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../accounts/account_switcher.dart';
 import '../accounts/accounts_controller.dart';
+import '../compose/compose_args.dart';
 import '../core/motion.dart';
+import '../core/providers.dart';
 import '../core/quire/painting/hamburger_painter.dart';
 import '../core/quire/theme/colors.dart';
+import '../core/quire/theme/easings.dart';
 import '../core/quire/theme/feedback.dart';
 import '../core/quire/theme/metrics.dart';
 import '../core/quire/theme/springs.dart';
 import '../core/quire/theme/typography.dart';
+import '../core/quire/widgets/gooey_fab/gooey_fab.dart';
 import '../core/quire/widgets/press_fade.dart';
 import '../core/quire/widgets/pull_to_refresh.dart';
 import '../core/quire/widgets/skeleton.dart';
 import '../core/widgets.dart';
 import '../notifications/in_app_banner.dart';
 import '../notifications/push_service.dart';
+import '../templates/template.dart';
 import 'label_picker.dart';
 import 'mail_providers.dart';
+import 'mail_repository.dart';
 import 'mail_row.dart';
 import 'models.dart';
 import 'nav_drawer.dart';
+
+const _bar = 56.0;
 
 class InboxScreen extends ConsumerStatefulWidget {
   const InboxScreen({super.key});
@@ -39,7 +47,8 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
   static const _flingVelocity = 300.0;
   late final _drawer = AnimationController(vsync: this);
   final _scroll = ScrollController();
-  final _fabExtended = ValueNotifier(true);
+  final _fabShown = ValueNotifier(true);
+  final _selected = <String>{};
   StreamSubscription<PushEvent>? _pushes;
 
   double get _drawerWidth => drawerWidth(MediaQuery.sizeOf(context).width);
@@ -67,14 +76,14 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
     _pushes?.cancel();
     _drawer.dispose();
     _scroll.dispose();
-    _fabExtended.dispose();
+    _fabShown.dispose();
     super.dispose();
   }
 
   void _onScroll() {
     final dir = _scroll.position.userScrollDirection;
-    if (dir == ScrollDirection.reverse) _fabExtended.value = false;
-    if (dir == ScrollDirection.forward || _scroll.offset < 40) _fabExtended.value = true;
+    if (dir == ScrollDirection.reverse) _fabShown.value = false;
+    if (dir == ScrollDirection.forward || _scroll.offset < 40) _fabShown.value = true;
     if (_scroll.position.extentAfter < 600) ref.read(inboxProvider(ref.read(currentLabelProvider)).notifier).loadMore();
   }
 
@@ -98,6 +107,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
   void _select(String label) {
     ref.read(currentLabelProvider.notifier).select(label);
     _settleDrawer(false);
+    setState(_selected.clear);
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
@@ -107,6 +117,23 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
       showQuireSheet(context, (_) => const LabelsManager());
     } else {
       context.push(path);
+    }
+  }
+
+  void _toggleSelect(String id) => setState(() => _selected.contains(id) ? _selected.remove(id) : _selected.add(id));
+
+  Future<void> _bulk(String done, Future<void> Function(Message m) action) async {
+    final label = ref.read(currentLabelProvider);
+    final messages = ref.read(inboxProvider(label)).value?.messages.where((m) => _selected.contains(m.id)).toList() ?? [];
+    Feel.commit.ring();
+    setState(_selected.clear);
+    try {
+      await Future.wait(messages.map(action));
+      await ref.read(inboxProvider(label).notifier).refresh();
+      ref.invalidate(labelsProvider);
+      if (mounted) showToast(context, done);
+    } catch (e) {
+      if (mounted) showToast(context, '$e');
     }
   }
 
@@ -128,104 +155,221 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _fabAction(int i) async {
+    switch (i) {
+      case 0:
+        context.push('/compose');
+      case 1:
+        final t = await context.push<MailTemplate>('/templates?pick=1');
+        if (t != null && mounted) context.push('/compose', extra: ComposeArgs(template: t));
+      case 2:
+        context.push('/compose', extra: const ComposeArgs(design: true));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final label = ref.watch(currentLabelProvider);
     final labels = ref.watch(labelsProvider).value ?? [];
     final title = systemLabels[label] ?? labels.where((l) => l.id == label).firstOrNull?.name ?? 'Mail';
     final width = _drawerWidth;
-    return Scaffold(
-      floatingActionButton: _ComposeFab(extended: _fabExtended),
-      body: Stack(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onHorizontalDragUpdate: (d) => d.globalPosition.dx < 28 || _drawer.value > 0 ? _dragDrawer(d.delta.dx) : null,
-            onHorizontalDragEnd: (d) => _drawer.value > 0 ? _endDrawerDrag(d.primaryVelocity ?? 0) : null,
-            child: SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  _TopBar(onMenu: _toggleDrawer),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
+    final top = MediaQuery.paddingOf(context).top;
+    final api = ref.read(mailRepositoryProvider).api;
+    final selecting = _selected.isNotEmpty;
+    return PopScope(
+      canPop: !selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(_selected.clear);
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragUpdate: (d) => d.globalPosition.dx < 28 || _drawer.value > 0 ? _dragDrawer(d.delta.dx) : null,
+              onHorizontalDragEnd: (d) => _drawer.value > 0 ? _endDrawerDrag(d.primaryVelocity ?? 0) : null,
+              child: SafeArea(
+                bottom: false,
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: _bar + 16,
                       child: AnimatedSwitcher(
-                        duration: kDim,
-                        child: Text(
-                          title,
-                          key: ValueKey(title),
-                          style: AppText.sortLabel.copyWith(color: AppColors.inkSoft),
+                        duration: const Duration(milliseconds: 220),
+                        transitionBuilder: (child, a) => FadeTransition(
+                          opacity: a,
+                          child: SlideTransition(
+                            position: Tween(begin: const Offset(0, -0.2), end: Offset.zero).animate(a),
+                            child: child,
+                          ),
+                        ),
+                        child: selecting
+                            ? _SelectionBar(
+                                key: const ValueKey('selection'),
+                                count: _selected.length,
+                                onClose: () => setState(_selected.clear),
+                                onArchive: () => _bulk('Archived', (m) => api.updateMessage(m.id, archived: true)),
+                                onDelete: () => _bulk('Moved to Trash', (m) => api.updateMessage(m.id, labels: ['trash'])),
+                                onRead: () => _bulk('Marked as read', (m) => api.updateMessage(m.id, read: true)),
+                              )
+                            : const _SearchBar(key: ValueKey('search')),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: AnimatedSwitcher(
+                          duration: kDim,
+                          child: Text(
+                            title,
+                            key: ValueKey(title),
+                            style: AppText.sortLabel.copyWith(color: AppColors.inkSoft),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: kDeskWakingFade,
-                      child: KeyedSubtree(
-                        key: ValueKey('$label-${ref.watch(activeAccountProvider)?.id}'),
-                        child: _MailList(
-                          label: label,
-                          scroll: _scroll,
-                          onArchive: (m) => _archive(m, label),
-                          onStar: (m) => _star(m, label),
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: kDeskWakingFade,
+                        child: KeyedSubtree(
+                          key: ValueKey('$label-${ref.watch(activeAccountProvider)?.id}'),
+                          child: _MailList(
+                            label: label,
+                            scroll: _scroll,
+                            selected: _selected,
+                            onSelect: _toggleSelect,
+                            onArchive: (m) => _archive(m, label),
+                            onStar: (m) => _star(m, label),
+                          ),
                         ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _fabShown,
+                builder: (context, shown, child) => AnimatedSlide(
+                  offset: shown && !selecting ? Offset.zero : const Offset(0, 0.3),
+                  duration: const Duration(milliseconds: 260),
+                  curve: easeOutCubic,
+                  child: IgnorePointer(
+                    ignoring: !shown || selecting,
+                    child: AnimatedOpacity(opacity: shown && !selecting ? 1 : 0, duration: const Duration(milliseconds: 200), child: child),
                   ),
-                ],
+                ),
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+                  child: GooeyFab(onSelected: _fabAction),
+                ),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _drawer,
+              builder: (context, _) {
+                final p = _drawer.value.clamp(0.0, 1.0);
+                if (p == 0) return const SizedBox.shrink();
+                return Stack(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        Feel.tap.ring();
+                        _settleDrawer(false);
+                      },
+                      onHorizontalDragUpdate: (d) => _dragDrawer(d.delta.dx),
+                      onHorizontalDragEnd: (d) => _endDrawerDrag(d.primaryVelocity ?? 0),
+                      child: Container(color: AppColors.scrim.withValues(alpha: AppColors.scrim.a * p)),
+                    ),
+                    Positioned(
+                      left: -width * (1 - _drawer.value),
+                      top: 0,
+                      bottom: 0,
+                      width: width,
+                      child: GestureDetector(
+                        onHorizontalDragUpdate: (d) => _dragDrawer(d.delta.dx),
+                        onHorizontalDragEnd: (d) => _endDrawerDrag(d.primaryVelocity ?? 0),
+                        child: NavDrawer(selected: label, onSelect: _select, onLink: _link),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            if (!selecting)
+              Positioned(
+                left: 8,
+                top: top + 8 + (_bar - kBurgerTarget - 8) / 2,
+                child: PaperPress(
+                  onTap: _toggleDrawer,
+                  feel: Feel.none,
+                  semanticLabel: 'Menu',
+                  washRadius: 24,
+                  child: SizedBox.square(
+                    dimension: kBurgerTarget + 8,
+                    child: AnimatedBuilder(
+                      animation: _drawer,
+                      builder: (context, _) => CustomPaint(
+                        painter: HamburgerPainter(progress: _drawer.value, color: AppColors.ink),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Gmail's header: menu, a centred search pill, and your account picture.
+class _SearchBar extends ConsumerWidget {
+  const _SearchBar({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final account = ref.watch(activeAccountProvider);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(56, 8, 8, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: PaperPress(
+              onTap: () => context.push('/search'),
+              semanticLabel: 'Search in emails',
+              washRadius: _bar / 2,
+              child: Hero(
+                tag: 'search',
+                child: Material(
+                  color: AppColors.surfaceHigh,
+                  borderRadius: BorderRadius.circular(_bar / 2),
+                  child: SizedBox(
+                    height: _bar,
+                    child: Center(
+                      child: Text('Search in emails', style: AppText.search.copyWith(color: AppColors.inkSoft, fontSize: 16)),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          AnimatedBuilder(
-            animation: _drawer,
-            builder: (context, _) {
-              final p = _drawer.value.clamp(0.0, 1.0);
-              if (p == 0) return const SizedBox.shrink();
-              return Stack(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      Feel.tap.ring();
-                      _settleDrawer(false);
-                    },
-                    onHorizontalDragUpdate: (d) => _dragDrawer(d.delta.dx),
-                    onHorizontalDragEnd: (d) => _endDrawerDrag(d.primaryVelocity ?? 0),
-                    child: Container(color: AppColors.scrim.withValues(alpha: AppColors.scrim.a * p)),
-                  ),
-                  Positioned(
-                    left: -width * (1 - _drawer.value),
-                    top: 0,
-                    bottom: 0,
-                    width: width,
-                    child: GestureDetector(
-                      onHorizontalDragUpdate: (d) => _dragDrawer(d.delta.dx),
-                      onHorizontalDragEnd: (d) => _endDrawerDrag(d.primaryVelocity ?? 0),
-                      child: NavDrawer(selected: label, onSelect: _select, onLink: _link),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          Positioned(
-            left: kTopBarPaddingX,
-            top: MediaQuery.paddingOf(context).top + 8,
-            child: PaperPress(
-              onTap: _toggleDrawer,
-              feel: Feel.none,
-              semanticLabel: 'Menu',
-              washRadius: 20,
-              child: SizedBox.square(
-                dimension: kBurgerTarget,
-                child: AnimatedBuilder(
-                  animation: _drawer,
-                  builder: (context, _) => CustomPaint(
-                    painter: HamburgerPainter(progress: _drawer.value, color: AppColors.ink),
-                  ),
+          const SizedBox(width: 6),
+          PaperPress(
+            onTap: () => showAccountSwitcher(context),
+            semanticLabel: 'Switch account',
+            washRadius: 24,
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                transitionBuilder: (child, a) => RotationTransition(
+                  turns: Tween(begin: 0.75, end: 1.0).animate(a),
+                  child: ScaleTransition(scale: a, child: child),
                 ),
+                child: Avatar(key: ValueKey(account?.id), name: account?.name ?? '?', size: 38),
               ),
             ),
           ),
@@ -235,68 +379,102 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
   }
 }
 
-class _TopBar extends ConsumerWidget {
-  const _TopBar({required this.onMenu});
-  final VoidCallback onMenu;
+class _SelectionBar extends StatelessWidget {
+  const _SelectionBar({
+    super.key,
+    required this.count,
+    required this.onClose,
+    required this.onArchive,
+    required this.onDelete,
+    required this.onRead,
+  });
+  final int count;
+  final VoidCallback onClose;
+  final VoidCallback onArchive;
+  final VoidCallback onDelete;
+  final VoidCallback onRead;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final account = ref.watch(activeAccountProvider);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(kTopBarPaddingX, 8, kTopBarPaddingX, 0),
-      child: Container(
-        height: 52,
-        decoration: BoxDecoration(color: AppColors.surfaceHigh, borderRadius: BorderRadius.circular(26)),
-        child: Row(
-          children: [
-            const SizedBox(width: kBurgerTarget + 8),
-            Expanded(
-              child: PaperPress(
-                onTap: () => context.push('/search'),
-                semanticLabel: 'Search in emails',
-                washRadius: 26,
-                child: Hero(
-                  tag: 'search',
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: SizedBox(
-                      height: 52,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('Search in emails', style: AppText.search.copyWith(color: AppColors.inkSoft)),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            PaperPress(
-              onTap: () => showAccountSwitcher(context),
-              semanticLabel: 'Switch account',
-              washRadius: 22,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 260),
-                  transitionBuilder: (child, a) => RotationTransition(
-                    turns: Tween(begin: 0.75, end: 1.0).animate(a),
-                    child: ScaleTransition(scale: a, child: child),
-                  ),
-                  child: Avatar(key: ValueKey(account?.id), name: account?.name ?? '?', size: 34),
-                ),
-              ),
-            ),
-          ],
-        ),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+    child: Container(
+      height: _bar,
+      decoration: BoxDecoration(color: AppColors.accentMuted, borderRadius: BorderRadius.circular(_bar / 2)),
+      child: Row(
+        children: [
+          IconPress(icon: LucideIcons.x, label: 'Clear selection', onTap: onClose),
+          const SizedBox(width: 4),
+          Text('$count', style: AppText.title.copyWith(color: AppColors.ink)),
+          const Spacer(),
+          IconPress(icon: LucideIcons.archive, label: 'Archive', onTap: onArchive),
+          IconPress(icon: LucideIcons.trash2, label: 'Delete', onTap: onDelete),
+          IconPress(icon: LucideIcons.mailOpen, label: 'Mark as read', onTap: onRead),
+          const SizedBox(width: 4),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+/// Gmail's one-time hint, dismissed for good.
+class _Tip extends ConsumerStatefulWidget {
+  const _Tip();
+
+  @override
+  ConsumerState<_Tip> createState() => _TipState();
+}
+
+class _TipState extends ConsumerState<_Tip> {
+  static const _key = 'tip_select_dismissed';
+  late bool _shown = !(ref.read(prefsProvider).getBool(_key) ?? false);
+
+  @override
+  Widget build(BuildContext context) => AnimatedSize(
+    duration: const Duration(milliseconds: 260),
+    curve: easeOutCubic,
+    child: !_shown
+        ? const SizedBox(width: double.infinity)
+        : Container(
+            margin: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+            padding: const EdgeInsets.fromLTRB(18, 14, 8, 14),
+            decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
+            child: Row(
+              children: [
+                Icon(LucideIcons.pointer, size: 22, color: AppColors.accentBright),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    'Tap a sender image to select that conversation.',
+                    style: AppText.bodyTight.copyWith(color: AppColors.inkSoft, fontSize: 15, height: 1.35),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Feel.tap.ring();
+                    ref.read(prefsProvider).setBool(_key, true);
+                    setState(() => _shown = false);
+                  },
+                  child: Text('Dismiss', style: AppText.actionPill.copyWith(color: AppColors.accentBright)),
+                ),
+              ],
+            ),
+          ),
+  );
 }
 
 class _MailList extends ConsumerWidget {
-  const _MailList({required this.label, required this.scroll, required this.onArchive, required this.onStar});
+  const _MailList({
+    required this.label,
+    required this.scroll,
+    required this.selected,
+    required this.onSelect,
+    required this.onArchive,
+    required this.onStar,
+  });
   final String label;
   final ScrollController scroll;
+  final Set<String> selected;
+  final ValueChanged<String> onSelect;
   final ValueChanged<Message> onArchive;
   final ValueChanged<Message> onStar;
 
@@ -338,19 +516,24 @@ class _MailList extends ConsumerWidget {
             : ListView.builder(
                 controller: scroll,
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.only(bottom: 96),
-                itemCount: state.messages.length + (state.nextCursor != null ? 1 : 0),
+                padding: const EdgeInsets.only(bottom: 120),
+                itemCount: state.messages.length + 1 + (state.nextCursor != null ? 1 : 0),
                 itemBuilder: (context, i) {
-                  if (i == state.messages.length) return const Padding(padding: EdgeInsets.all(16), child: Loader());
-                  final m = state.messages[i];
+                  if (i == 0) return const _Tip();
+                  final index = i - 1;
+                  if (index == state.messages.length) return const Padding(padding: EdgeInsets.all(16), child: Loader());
+                  final m = state.messages[index];
+                  final selecting = selected.isNotEmpty;
                   return EntryMotion(
                     key: ValueKey(m.id),
-                    index: i,
+                    index: index,
                     child: MailRow(
                       message: m,
-                      onTap: () => context.push('/thread/${m.threadId}?hero=${m.id}'),
+                      selected: selected.contains(m.id),
+                      onSelect: () => onSelect(m.id),
+                      onTap: () => selecting ? onSelect(m.id) : context.push('/thread/${m.threadId}?hero=${m.id}'),
                       onStar: () => onStar(m),
-                      onArchive: label == 'inbox' ? () => onArchive(m) : null,
+                      onArchive: label == 'inbox' && !selecting ? () => onArchive(m) : null,
                     ),
                   );
                 },
@@ -364,55 +547,6 @@ class _MailList extends ConsumerWidget {
       ),
     };
   }
-}
-
-/// Gmail's compose button: a wide pill that folds to a square while you scroll down,
-/// and flies open into the compose screen.
-class _ComposeFab extends StatelessWidget {
-  const _ComposeFab({required this.extended});
-  final ValueNotifier<bool> extended;
-
-  @override
-  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
-    valueListenable: extended,
-    builder: (context, wide, _) => PaperPress(
-      onTap: () => context.push('/compose'),
-      semanticLabel: 'Compose',
-      washRadius: 18,
-      child: Hero(
-        tag: 'compose',
-        flightShuttleBuilder: composeFlight,
-        child: Material(
-          color: AppColors.accentMuted,
-          borderRadius: BorderRadius.circular(18),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            height: 56,
-            width: wide ? 138 : 56,
-            child: ClipRect(
-              child: OverflowBox(
-                maxWidth: 138,
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  children: [
-                    const SizedBox(width: 18),
-                    Icon(LucideIcons.pencil, color: AppColors.ink, size: 20),
-                    const SizedBox(width: 14),
-                    AnimatedOpacity(
-                      duration: const Duration(milliseconds: 160),
-                      opacity: wide ? 1 : 0,
-                      child: Text('Compose', style: AppText.actionPill.copyWith(color: AppColors.ink)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
 }
 
 Widget composeFlight(

@@ -4,9 +4,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 typedef FabAction = ({IconData glyph, String label, double offsetY});
 
 const kFabActions = <FabAction>[
-  (glyph: LucideIcons.folder, label: 'Open a file', offsetY: -82.0),
-  (glyph: LucideIcons.penLine, label: 'Sign a PDF', offsetY: -152.0),
-  (glyph: LucideIcons.clock, label: 'Recent', offsetY: -222.0),
+  (glyph: LucideIcons.pencil, label: 'New email', offsetY: -82.0),
+  (glyph: LucideIcons.layoutTemplate, label: 'From a template', offsetY: -152.0),
+  (glyph: LucideIcons.layoutPanelTop, label: 'Design with blocks', offsetY: -222.0),
 ];
 
 const kFabRestSize = 60.0;
