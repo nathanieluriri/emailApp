@@ -52,19 +52,17 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final host = ref.read(accountsProvider).value?.active?.host;
-    if (state == AppLifecycleState.resumed && host != null) PushService.clearFor(host);
+    final active = ref.read(accountsProvider).value?.active;
+    if (state == AppLifecycleState.resumed && active != null) PushService.clearFor(active.email);
   }
 
   Future<void> _openPush(PushEvent e) async {
     await ref.read(accountsProvider.future);
     final controller = ref.read(accountsProvider.notifier);
-    if (e.host != null && ref.read(accountsProvider).value?.active?.host != e.host) {
-      final account = controller.byHost(e.host!);
-      if (account != null) await controller.switchTo(account.id);
-    }
-    final host = ref.read(accountsProvider).value?.active?.host;
-    if (host != null) PushService.clearFor(host);
+    final target = e.host == null ? null : controller.forPush(e.host!, e.account);
+    if (target != null) await controller.switchTo(target.id);
+    final active = ref.read(accountsProvider).value?.active;
+    if (active != null) PushService.clearFor(active.email);
     final router = ref.read(routerProvider);
     router.go('/inbox');
     if (e.threadId == null) return;

@@ -131,7 +131,7 @@ class _PushState extends ConsumerState<_Push> {
       if (on) {
         final granted = await PushService.enable();
         final state = ref.read(accountsProvider).value;
-        if (granted && state != null) await PushService.syncTags(state.accounts, active: state.active);
+        if (granted && state != null) await PushService.register(state.accounts);
       } else {
         await PushService.disable();
       }
@@ -270,7 +270,7 @@ class _CatchAllState extends ConsumerState<_CatchAll> {
       title: 'Receive mail for every address',
       subtitle: switch (state) {
         AsyncError(:final error) => '$error',
-        AsyncValue(hasValue: true) => on ? 'Any address on the domain lands here' : 'Only your sender addresses land here',
+        AsyncValue(hasValue: true) => on ? 'Every address on the domain gets mail. Add one as an account to read it.' : 'Only the sender addresses get mail',
         _ => 'Checking',
       },
       value: on,

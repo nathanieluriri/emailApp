@@ -2,11 +2,18 @@ import { fail } from './http.js';
 
 const shape = (l) => ({ id: l.id, name: l.name, color: l.color, system: !!l.system, unread: l.unread, total: l.total });
 
-export async function listLabels({ db }) {
-  const rows = await db.all(`SELECT l.*,
-    (SELECT count(*) FROM message_labels ml JOIN messages m ON m.id = ml.message_id WHERE ml.label_id = l.id AND m.read = 0) AS unread,
-    (SELECT count(*) FROM message_labels WHERE label_id = l.id) AS total
-    FROM labels l ORDER BY l.system DESC, l.name`);
+export async function listLabels({ db, mailbox }) {
+  const owned = `AND ml.message_id IN (SELECT message_id FROM message_owners WHERE address = ?
+    AND role = CASE l.id WHEN 'inbox' THEN 'to' WHEN 'sent' THEN 'from' ELSE role END)`;
+  const unsent = "AND ml.message_id NOT IN (SELECT message_id FROM message_owners WHERE address = ? AND role = 'from')";
+  const rows = await db.all(
+    `SELECT l.*,
+      (SELECT count(*) FROM message_labels ml JOIN messages m ON m.id = ml.message_id
+        WHERE ml.label_id = l.id AND m.read = 0 ${mailbox ? `${owned} ${unsent}` : ''}) AS unread,
+      (SELECT count(*) FROM message_labels ml WHERE ml.label_id = l.id ${mailbox ? owned : ''}) AS total
+     FROM labels l ORDER BY l.system DESC, l.name`,
+    ...(mailbox ? [mailbox, mailbox, mailbox] : []),
+  );
   return rows.map(shape);
 }
 

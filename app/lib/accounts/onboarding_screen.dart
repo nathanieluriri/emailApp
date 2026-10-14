@@ -146,7 +146,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     setState(() => _busy = true);
     await PushService.enable();
     final state = ref.read(accountsProvider).value;
-    if (state != null) await PushService.syncTags(state.accounts, active: state.active);
+    if (state != null) await PushService.register(state.accounts);
     await Reminders.schedule(ref.read(settingsProvider).reminderMinutes);
     if (mounted) _finish();
   }

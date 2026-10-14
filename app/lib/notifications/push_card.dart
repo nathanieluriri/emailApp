@@ -48,7 +48,7 @@ class _PushCardState extends ConsumerState<PushCard> with SingleTickerProviderSt
     setState(() => _busy = true);
     final on = await PushService.enable();
     final accounts = ref.read(accountsProvider).value;
-    if (on && accounts != null) await PushService.syncTags(accounts.accounts, active: accounts.active);
+    if (on && accounts != null) await PushService.register(accounts.accounts);
     if (!mounted) return;
     setState(() => _busy = false);
     if (on) {

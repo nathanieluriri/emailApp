@@ -1,10 +1,18 @@
 import { fail, parseJson } from './http.js';
 
 const PAGE = 50;
-const LIST_COLUMNS = `m.id, m.thread_id, m.direction, m.from_addr, m.from_name, m.to_json, m.subject, m.snippet, m.date,
-  m.read, m.starred, m.archived, m.has_attachments,
-  (SELECT message_count FROM threads WHERE id = m.thread_id) AS thread_count,
+const columns = (scoped) => `m.id, m.thread_id, ${scoped ? "CASE WHEN o.from_me THEN 'out' ELSE 'in' END" : 'm.direction'} AS direction,
+  m.from_addr, m.from_name, m.to_json, m.subject, m.snippet, m.date, ${scoped ? 'CASE WHEN o.from_me THEN 1 ELSE m.read END' : 'm.read'} AS read,
+  m.starred, m.archived, m.has_attachments,
+  ${scoped
+    ? `(SELECT count(DISTINCT x.message_id) FROM message_owners x JOIN messages t ON t.id = x.message_id
+        WHERE x.address = o.address AND t.thread_id = m.thread_id)`
+    : '(SELECT message_count FROM threads WHERE id = m.thread_id)'} AS thread_count,
   (SELECT group_concat(label_id) FROM message_labels WHERE message_id = m.id) AS label_ids`;
+
+// The mailbox's roles per message: what it received ("to") and what it sent ("from"). Binds the address first.
+const MINE = `JOIN (SELECT message_id, address, max(role = 'to') AS to_me, max(role = 'from') AS from_me
+  FROM message_owners WHERE address = ? GROUP BY message_id) o ON o.message_id = m.id`;
 
 const summary = (m) => ({
   id: m.id,
@@ -43,11 +51,14 @@ const detail = (m, attachments) => ({
 const ftsQuery = (q) =>
   q.split(/\s+/).filter(Boolean).map((w) => `"${w.replace(/"/g, '""')}"*`).join(' ');
 
-export async function listMessages({ db, url }) {
+export async function listMessages({ db, url, mailbox }) {
   const s = url.searchParams;
   const label = s.get('label') || 'inbox';
   const where = [];
   const params = [];
+
+  if (mailbox && label === 'inbox') where.push('o.to_me = 1');
+  if (mailbox && label === 'sent') where.push('o.from_me = 1');
 
   if (label === 'starred') where.push('m.starred = 1');
   else if (label !== 'all') {
@@ -71,8 +82,9 @@ export async function listMessages({ db, url }) {
   }
 
   const rows = await db.all(
-    `SELECT ${LIST_COLUMNS} FROM messages m ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    `SELECT ${columns(!!mailbox)} FROM messages m ${mailbox ? MINE : ''} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
      ORDER BY m.date DESC, m.id DESC LIMIT ${PAGE + 1}`,
+    ...(mailbox ? [mailbox] : []),
     ...params,
   );
   const page = rows.slice(0, PAGE);
@@ -83,8 +95,13 @@ export async function listMessages({ db, url }) {
   };
 }
 
-async function loadMessages(db, column, value) {
-  const rows = await db.all(`SELECT m.*, ${LIST_COLUMNS} FROM messages m WHERE m.${column} = ? ORDER BY m.date`, value);
+async function loadMessages(db, column, value, mailbox) {
+  const rows = await db.all(
+    `SELECT ${columns(!!mailbox)}, m.cc_json, m.bcc_json, m.message_id_header, m.in_reply_to, m.html, m.text
+     FROM messages m ${mailbox ? MINE : ''} WHERE m.${column} = ? ORDER BY m.date`,
+    ...(mailbox ? [mailbox] : []),
+    value,
+  );
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
   const atts = await db.all(
@@ -94,24 +111,25 @@ async function loadMessages(db, column, value) {
   return rows.map((r) => detail(r, atts.filter((a) => a.message_id === r.id)));
 }
 
-export async function getMessage({ db, params }) {
-  const [m] = await loadMessages(db, 'id', params.id);
+export async function getMessage({ db, params, mailbox }) {
+  const [m] = await loadMessages(db, 'id', params.id, mailbox);
   return m || fail(404, 'message not found');
 }
 
-export async function getThread({ db, params }) {
+export async function getThread({ db, params, mailbox }) {
   const thread = await db.first('SELECT * FROM threads WHERE id = ?', params.id);
-  if (!thread) fail(404, 'thread not found');
+  const messages = thread ? await loadMessages(db, 'thread_id', params.id, mailbox) : [];
+  if (!messages.length) fail(404, 'thread not found');
   return {
     id: thread.id,
     subject: thread.subject,
-    lastMessageAt: thread.last_message_at,
-    messageCount: thread.message_count,
-    messages: await loadMessages(db, 'thread_id', params.id),
+    lastMessageAt: messages[messages.length - 1].date,
+    messageCount: messages.length,
+    messages,
   };
 }
 
-export async function patchMessage({ db, req, params }) {
+export async function patchMessage({ db, req, params, mailbox }) {
   const b = await req.json();
   const id = params.id;
   if (!(await db.first('SELECT id FROM messages WHERE id = ?', id))) fail(404, 'message not found');
@@ -127,7 +145,7 @@ export async function patchMessage({ db, req, params }) {
   if (b.archived === true) stmts.push(["DELETE FROM message_labels WHERE message_id = ? AND label_id = 'inbox'", id]);
   if (b.archived === false) stmts.push(["INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?, 'inbox')", id]);
   if (stmts.length) await db.batch(stmts);
-  return getMessage({ db, params });
+  return getMessage({ db, params, mailbox });
 }
 
 export async function getAttachment({ db, env, params }) {

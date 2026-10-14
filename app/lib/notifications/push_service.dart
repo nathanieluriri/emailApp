@@ -5,6 +5,7 @@ import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../accounts/account.dart';
+import '../core/api/api_client.dart';
 import '../core/config.dart';
 
 enum PushAction { open, reply }
@@ -47,8 +48,8 @@ class PushStatus {
   bool get on => permission && optedIn && registered;
 }
 
-/// Devices carry `worker_host=<active host>` plus `wh_<host>=1` for every saved account,
-/// so one device receives pushes for all of its accounts.
+/// The device registers its push subscription with each worker for the addresses it holds there,
+/// so a phone only hears about the mailboxes signed in on it.
 abstract final class PushService {
   static const pushIdsKey = 'push_ids';
   static const optedInKey = 'push_opted_in';
@@ -56,8 +57,8 @@ abstract final class PushService {
   static final events = StreamController<PushEvent>.broadcast();
   static final changes = StreamController<PushStatus>.broadcast();
   static PushEvent? pendingOpen;
-
-  static String hostTag(String host) => 'wh_$host';
+  static List<Account> _accounts = const [];
+  static String? _registered;
 
   static PushStatus get status => PushStatus(
     permission: OneSignal.Notifications.permission,
@@ -107,6 +108,7 @@ abstract final class PushService {
 
   static PushEvent _fromLaunch(Map launch) => PushEvent(
     host: launch['host'] as String?,
+    account: launch['account'] as String?,
     threadId: launch['threadId'] as String?,
     messageId: launch['messageId'] as String?,
     action: launch['action'] == 'reply' ? PushAction.reply : PushAction.open,
@@ -123,12 +125,14 @@ abstract final class PushService {
     events.add(event);
   }
 
-  static void open(PushEvent e) => events.add(PushEvent(host: e.host, threadId: e.threadId, messageId: e.messageId, opened: true));
+  static void open(PushEvent e) =>
+      events.add(PushEvent(host: e.host, account: e.account, threadId: e.threadId, messageId: e.messageId, opened: true));
 
   static Future<void> _changed() async {
     final now = status;
     await (await SharedPreferences.getInstance()).setBool(optedInKey, now.on);
     changes.add(now);
+    if (now.id != null && now.id != _registered) await register(_accounts);
   }
 
   /// Asks for permission (offering the system settings when it was denied before) and opts the device back in.
@@ -154,19 +158,26 @@ abstract final class PushService {
     }
   }
 
-  static Future<void> clearFor(String host) async {
+  static Future<void> clearFor(String account) async {
     try {
-      await OneSignal.Notifications.removeGroupedNotifications(host);
+      await OneSignal.Notifications.removeGroupedNotifications(account);
     } catch (_) {}
   }
 
-  static Future<void> syncTags(List<Account> accounts, {Account? active}) async {
-    if (accounts.isEmpty) return;
-    await OneSignal.User.addTags({'worker_host': (active ?? accounts.first).host, for (final a in accounts) hostTag(a.host): '1'});
-  }
-
-  static Future<void> removeTag(Account removed, List<Account> remaining) async {
-    if (remaining.any((a) => a.host == removed.host)) return;
-    await OneSignal.User.removeTags([hostTag(removed.host), if (remaining.isEmpty) 'worker_host']);
+  /// Tells each worker which of its addresses this device should be notified for; [removed] clears a worker left with none.
+  static Future<void> register(List<Account> accounts, {Account? removed}) async {
+    _accounts = accounts;
+    final id = OneSignal.User.pushSubscription.id;
+    if (id == null || id.isEmpty) return;
+    _registered = id;
+    final workers = <String, (String, Set<String>)>{if (removed != null) removed.workerUrl: (removed.apiKey, <String>{})};
+    for (final a in accounts) {
+      (workers[a.workerUrl] ??= (a.apiKey, <String>{})).$2.add(a.email);
+    }
+    for (final MapEntry(key: url, value: (key, addresses)) in workers.entries) {
+      try {
+        await ApiClient(url, key).registerDevice(id, addresses);
+      } catch (_) {}
+    }
   }
 }

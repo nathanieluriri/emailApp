@@ -22,7 +22,7 @@ export function senders({ env, url, ctx, db }) {
   };
 }
 
-async function deliver(env, db, b) {
+async function deliver(env, db, b, mailbox) {
   const domain = env.ALLOWED_DOMAIN.toLowerCase();
   const from = b.from?.trim().toLowerCase();
   if (!from?.endsWith(`@${domain}`)) fail(400, `"from" must end with @${domain}`);
@@ -84,16 +84,17 @@ async function deliver(env, db, b) {
     text,
     read: true,
     labels: ['sent'],
+    owners: [...new Set([from, mailbox].filter(Boolean))].map((address) => ({ address, role: 'from' })),
     attachments,
   });
   return { ...stored, messageIdHeader };
 }
 
-export async function send({ env, db, req }) {
-  return deliver(env, db, await req.json());
+export async function send({ env, db, req, mailbox }) {
+  return deliver(env, db, await req.json(), mailbox);
 }
 
-export async function reply({ env, db, req, params }) {
+export async function reply({ env, db, req, params, mailbox }) {
   const orig = await db.first('SELECT * FROM messages WHERE id = ?', params.id);
   if (!orig) fail(404, 'message not found');
   const b = await req.json();
@@ -109,5 +110,5 @@ export async function reply({ env, db, req, params }) {
     cc,
     subject: b.subject || subject,
     inReplyTo: orig.id,
-  });
+  }, mailbox);
 }

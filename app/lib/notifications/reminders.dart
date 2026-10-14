@@ -87,7 +87,7 @@ abstract final class Reminders {
     var unreadTotal = 0;
 
     for (final (i, account) in (await AccountsRepository().load()).indexed) {
-      final page = await ApiClient(account.workerUrl, account.apiKey).messages(unread: true);
+      final page = await ApiClient(account.workerUrl, account.apiKey, mailbox: account.email).messages(unread: true);
       unreadTotal += page.messages.length;
       final fresh = page.messages.where((m) => m.date > lastCheck && !pushed.contains(m.id)).toList();
       if (fresh.isEmpty || pushOn) continue;

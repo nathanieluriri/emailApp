@@ -150,14 +150,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     });
   }
 
-  String _defaultFrom() {
-    final senders = _senders?.senders ?? [];
-    final source = widget.args.source;
-    final mine = source == null
-        ? null
-        : [...source.to, ...source.cc].map((a) => a.address.toLowerCase()).where((a) => senders.any((s) => s.address == a)).firstOrNull;
-    return mine ?? ref.read(activeAccountProvider)?.email ?? senders.firstOrNull?.address ?? '';
-  }
+  String _defaultFrom() => ref.read(activeAccountProvider)?.email ?? _senders?.senders.firstOrNull?.address ?? '';
 
   void _pickSignature() {
     if (_signatureOff) return;

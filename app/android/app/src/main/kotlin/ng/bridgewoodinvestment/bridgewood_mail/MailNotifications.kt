@@ -179,6 +179,7 @@ object MailNotifications {
             .setData(Uri.parse("quirepost://notification/$id/$action"))
             .putExtra("id", id)
             .putExtra("host", data.optString("host"))
+            .putExtra("account", data.optString("account"))
             .putExtra("threadId", data.optString("threadId"))
             .putExtra("messageId", data.optString("messageId"))
             .putExtra("token", data.optString("token"))
