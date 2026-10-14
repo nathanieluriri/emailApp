@@ -18,12 +18,17 @@ async function sign(env, threadId, address) {
   return btoa(String.fromCharCode(...mac.slice(0, 18))).replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-async function send(env, body) {
-  const res = await fetch('https://api.onesignal.com/notifications', {
-    method: 'POST',
+const onesignal = (env, path, init = {}) =>
+  fetch(`https://api.onesignal.com${path}`, {
+    ...init,
     headers: { authorization: `Key ${env.ONESIGNAL_REST_KEY}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ app_id: env.ONESIGNAL_APP_ID, ...body }),
   });
+
+// Phones sign in to OneSignal with a device id that survives reinstalls, so mail targets the phone, not one install.
+const toDevices = (ids) => ({ include_aliases: { external_id: ids }, target_channel: 'push' });
+
+async function send(env, body) {
+  const res = await onesignal(env, '/notifications', { method: 'POST', body: JSON.stringify({ app_id: env.ONESIGNAL_APP_ID, ...body }) });
   const out = await res.json().catch(() => ({}));
   const errors = Array.isArray(out.errors) ? out.errors : out.errors ? Object.keys(out.errors) : [];
   if (!res.ok || !out.id) throw Object.assign(new Error(`OneSignal: ${errors.join(', ') || res.status}`), { status: 502 });
@@ -73,7 +78,7 @@ export async function notifyNewMail(env, db, id, addresses) {
   const m = host && (await db.first('SELECT * FROM messages WHERE id = ?', id));
   if (!m) return;
   for (const account of addresses) {
-    const devices = await db.all('SELECT subscription_id FROM devices WHERE address = ?', account);
+    const devices = await db.all('SELECT device_id FROM device_mailboxes WHERE address = ?', account);
     if (!devices.length) continue;
     const earlier = await db.all(
       `SELECT m.id, m.thread_id, m.direction, m.from_addr, m.from_name, m.subject, m.snippet, m.date FROM messages m
@@ -87,7 +92,7 @@ export async function notifyNewMail(env, db, id, addresses) {
       account, m.created_at, m.created_at - QUIET_MS,
     );
     await send(env, {
-      include_subscription_ids: devices.map((d) => d.subscription_id),
+      ...toDevices(devices.map((d) => d.device_id)),
       ...mailNotification({
         host,
         account,
@@ -99,26 +104,38 @@ export async function notifyNewMail(env, db, id, addresses) {
   }
 }
 
-export async function registerDevice({ db, req, params }) {
-  const { addresses = [] } = await req.json().catch(() => ({}));
+export async function registerDevice({ env, db, req, params, ctx }) {
+  const { addresses = [], subscriptionId } = await req.json().catch(() => ({}));
   const list = [...new Set(addresses.map((a) => String(a).trim().toLowerCase()).filter(Boolean))];
   await db.batch([
-    ['DELETE FROM devices WHERE subscription_id = ?', params.id],
-    ...list.map((a) => ['INSERT INTO devices (subscription_id, address, updated_at) VALUES (?, ?, ?)', params.id, a, Date.now()]),
+    ['DELETE FROM device_mailboxes WHERE device_id = ?', params.id],
+    ...list.map((a) => ['INSERT INTO device_mailboxes (device_id, address, updated_at) VALUES (?, ?, ?)', params.id, a, Date.now()]),
   ]);
+  if (subscriptionId) ctx.waitUntil(pruneSubscriptions(env, params.id, subscriptionId).catch((e) => console.error('prune failed', e)));
   return { ok: true, addresses: list };
+}
+
+// Each reinstall leaves its old subscription on the phone's OneSignal user; keep only the live one.
+async function pruneSubscriptions(env, device, keep) {
+  if (!env.ONESIGNAL_APP_ID || !env.ONESIGNAL_REST_KEY) return;
+  const res = await onesignal(env, `/apps/${env.ONESIGNAL_APP_ID}/users/by/external_id/${encodeURIComponent(device)}`);
+  if (!res.ok) return;
+  const { subscriptions = [] } = await res.json();
+  const stale = subscriptions.filter((s) => s.id !== keep && /Push$/.test(s.type || ''));
+  await Promise.all(stale.map((s) => onesignal(env, `/apps/${env.ONESIGNAL_APP_ID}/subscriptions/${s.id}`, { method: 'DELETE' })));
 }
 
 export async function testPush({ env, db, req, url, mailbox }) {
   if (!env.ONESIGNAL_APP_ID || !env.ONESIGNAL_REST_KEY) fail(503, 'OneSignal is not configured on the worker');
-  const { subscriptionId } = await req.json().catch(() => ({}));
-  if (!subscriptionId) fail(400, '"subscriptionId" is required');
+  const { device, subscriptionId } = await req.json().catch(() => ({}));
+  if (!device && !subscriptionId) fail(400, '"device" is required');
+  const linked = device ? (await db.all('SELECT address FROM device_mailboxes WHERE device_id = ?', device)).map((r) => r.address) : [];
   const host = (await hostOf(env, db)) || url.host;
-  const account = mailbox || `hello@${env.ALLOWED_DOMAIN}`;
+  const account = mailbox || linked[0] || `hello@${env.ALLOWED_DOMAIN}`;
   const now = Date.now();
   const line = (from, snippet, date) => ({ id: 'test', thread_id: 'test', direction: 'in', from_addr: `hello@${env.ALLOWED_DOMAIN}`, from_name: from, subject: 'Notifications are on', snippet, date });
   const out = await send(env, {
-    include_subscription_ids: [subscriptionId],
+    ...(device ? toDevices([device]) : { include_subscription_ids: [subscriptionId] }),
     ...mailNotification({
       host,
       account,
@@ -128,9 +145,9 @@ export async function testPush({ env, db, req, url, mailbox }) {
         line('Quirepost', 'Replies in the same conversation stack here, so you can follow the thread at a glance.', now),
       ],
     }),
-    collapse_id: `test-${subscriptionId}`.slice(0, 64),
+    collapse_id: `test-${fnv(device || subscriptionId)}`,
   });
-  return { ok: true, id: out.id };
+  return { ok: true, id: out.id, linked };
 }
 
 export async function act({ env, db, req, params }) {

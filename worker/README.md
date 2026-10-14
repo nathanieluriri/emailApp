@@ -56,7 +56,7 @@ npx wrangler secret put ROUTING_KEYS   # optional: only these API keys may chang
 2. Settings, Keys and IDs: copy the App ID and create a REST API key, then set both secrets above.
 3. Put the same App ID in the Flutter app config.
 
-Each new mail notifies the phones registered for the mailbox that received it (`PUT /devices/:subscriptionId`), with one notification per conversation, so a busy thread updates in place instead of stacking. The payload carries the sender, subject, mailbox address and that mailbox's last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per mailbox with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail to the same mailbox is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `mail`, a high-importance channel the app creates.
+Each new mail notifies the phones registered for the mailbox that received it (`PUT /devices/:deviceId`), with one notification per conversation, so a busy thread updates in place instead of stacking. The payload carries the sender, subject, mailbox address and that mailbox's last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per mailbox with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail to the same mailbox is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `mail`, a high-importance channel the app creates.
 
 ## Mailboxes
 
@@ -85,6 +85,6 @@ All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bea
 | `POST /uploads` | image (raw body or multipart `file`), returns `{key, url}` |
 | `GET /img/:key` | public image for use inside sent mail |
 | `GET/PUT /routing/catch-all` | `{toWorker}`; see Catch-all override |
-| `POST /push/test` | `{subscriptionId}`: sends a sample notification to one device and returns OneSignal's error if it cannot be delivered |
-| `PUT /devices/:subscriptionId` | `{addresses[]}`: the mailboxes this OneSignal subscription is notified for (replaces the list) |
+| `POST /push/test` | `{device}`: sends a sample notification to one phone the same way new mail is sent, returns the mailboxes linked to it, or OneSignal's error if it cannot be delivered |
+| `PUT /devices/:deviceId` | `{addresses[], subscriptionId}`: the mailboxes this phone is notified for (replaces the list). Phones sign in to OneSignal with the device id as their External ID, so pushes target the phone, and the worker deletes the push subscriptions earlier installs left on it, keeping `subscriptionId` |
 | `POST /actions/:threadId/:action` | public, `{token, address}` from the push payload; `read` or `archive` that mailbox's copy of the conversation from a notification button |

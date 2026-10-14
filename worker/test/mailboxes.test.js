@@ -42,9 +42,19 @@ const D1 = {
 };
 
 const pushes = [];
-globalThis.fetch = async (_, o) => {
-  pushes.push(JSON.parse(o.body));
-  return new Response(JSON.stringify({ id: `n${pushes.length}` }));
+const deleted = [];
+globalThis.fetch = async (url, o = {}) => {
+  const path = new URL(url).pathname;
+  if (path === '/notifications') {
+    pushes.push(JSON.parse(o.body));
+    return new Response(JSON.stringify({ id: `n${pushes.length}` }));
+  }
+  if (path === '/apps/app/users/by/external_id/phone-nat') {
+    const subscriptions = [{ id: 'old-install', type: 'AndroidPush' }, { id: 'live', type: 'AndroidPush' }, { id: 'mail', type: 'Email' }];
+    return new Response(JSON.stringify({ subscriptions }));
+  }
+  if (o.method === 'DELETE') deleted.push(path.split('/').pop());
+  return new Response('{}', { status: o.method === 'DELETE' ? 202 : 404 });
 };
 const env = {
   DB: D1,
@@ -72,11 +82,13 @@ const list = async (mailbox, label = 'inbox', q = '') =>
   (await listMessages({ db, mailbox, url: new URL(`https://w.dev/messages?label=${label}${q}`) })).messages.map(
     (m) => `${m.direction}:${m.subject}:${m.threadCount}`,
   );
-const sentTo = () => pushes.splice(0).map((p) => `${p.data.account}>${p.include_subscription_ids}${p.data.quiet ? ' quiet' : ''}`);
+const sentTo = () => pushes.splice(0).map((p) => `${p.data.account}>${p.include_aliases.external_id}${p.data.quiet ? ' quiet' : ''}`);
 
 test('each address sees and is notified about its own mail only', async () => {
-  await registerDevice({ db, req: req({ addresses: ['Nat@bw.ng'] }), params: { id: 'phone-nat' } });
-  await registerDevice({ db, req: req({ addresses: ['admin@bw.ng'] }), params: { id: 'phone-admin' } });
+  await registerDevice({ env, db, ctx, req: req({ addresses: ['Nat@bw.ng'], subscriptionId: 'live' }), params: { id: 'phone-nat' } });
+  await registerDevice({ env, db, ctx, req: req({ addresses: ['admin@bw.ng'] }), params: { id: 'phone-admin' } });
+  await Promise.all(waits.splice(0));
+  assert.deepEqual(deleted, ['old-install']);
 
   await arrive('admin@bw.ng', { from: 'David <david@x.com>', to: 'admin@bw.ng', subject: 'Application', body: 'Attached' });
   assert.deepEqual(sentTo(), ['admin@bw.ng>phone-admin']);

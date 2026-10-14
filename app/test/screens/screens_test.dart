@@ -33,7 +33,13 @@ const _second = Account(
   apiKey: 'k',
 );
 
-const _subscribed = PushStatus(permission: true, optedIn: true, id: '8f2c41d7-5b1e-4c9a-a7e3-0d6b9f12c3aa', token: 't');
+const _subscribed = PushStatus(
+  permission: true,
+  optedIn: true,
+  id: '8f2c41d7-5b1e-4c9a-a7e3-0d6b9f12c3aa',
+  token: 't',
+  linked: {'nathaniel@bridgewoodinvestment.ng', 'info@bridgewoodinvestment.ng'},
+);
 
 class _Push extends PushStatusController {
   _Push(this.status);

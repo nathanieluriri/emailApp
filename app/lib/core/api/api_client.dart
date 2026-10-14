@@ -129,8 +129,12 @@ class ApiClient {
   Future<Map<String, dynamic>> setCatchAll(bool toWorker) =>
       _call(() => dio.put('/routing/catch-all', data: {'toWorker': toWorker}), (d) => Map<String, dynamic>.from(d));
 
-  Future<void> testPush(String subscriptionId) => _call(() => dio.post('/push/test', data: {'subscriptionId': subscriptionId}), (_) {});
+  /// Returns the addresses the worker pushes to [device] for.
+  Future<List<String>> testPush(String device) =>
+      _call(() => dio.post('/push/test', data: {'device': device}), (d) => [...(d['linked'] as List? ?? const []).cast<String>()]);
 
-  Future<void> registerDevice(String subscriptionId, Iterable<String> addresses) =>
-      _call(() => dio.put('/devices/$subscriptionId', data: {'addresses': [...addresses]}), (_) {});
+  Future<List<String>> registerDevice(String device, Iterable<String> addresses, {String? subscriptionId}) => _call(
+    () => dio.put('/devices/$device', data: {'addresses': [...addresses], 'subscriptionId': ?subscriptionId}),
+    (d) => [...(d['addresses'] as List? ?? const []).cast<String>()],
+  );
 }

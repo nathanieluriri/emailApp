@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../accounts/account.dart';
 import '../core/api/api_client.dart';
@@ -37,38 +39,70 @@ class PushEvent {
 }
 
 class PushStatus {
-  const PushStatus({this.permission = false, this.optedIn = false, this.id, this.token});
+  const PushStatus({this.permission = false, this.optedIn = false, this.id, this.token, this.linked = const {}});
 
   final bool permission;
   final bool optedIn;
   final String? id;
   final String? token;
 
+  /// The addresses the mail server has confirmed it pushes to this phone.
+  final Set<String> linked;
+
   bool get registered => (id ?? '').isNotEmpty && (token ?? '').isNotEmpty;
   bool get on => permission && optedIn && registered;
 }
 
-/// The device registers its push subscription with each worker for the addresses it holds there,
-/// so a phone only hears about the mailboxes signed in on it.
+/// The phone signs in to OneSignal with a device id that survives reinstalls, then tells each worker which of its
+/// addresses are on this phone, so mail is pushed to the phone (one subscription) and only for its own mailboxes.
 abstract final class PushService {
   static const pushIdsKey = 'push_ids';
   static const optedInKey = 'push_opted_in';
+  static const linkedKey = 'push_linked';
   static const _native = MethodChannel('quirepost/notifications');
   static final events = StreamController<PushEvent>.broadcast();
   static final changes = StreamController<PushStatus>.broadcast();
   static PushEvent? pendingOpen;
   static List<Account> _accounts = const [];
-  static String? _registered;
+  static Set<String> _linked = const {};
+  static Future<String>? _device;
+  static String? _sentSubscription;
 
   static PushStatus get status => PushStatus(
     permission: OneSignal.Notifications.permission,
     optedIn: OneSignal.User.pushSubscription.optedIn ?? false,
     id: OneSignal.User.pushSubscription.id,
     token: OneSignal.User.pushSubscription.token,
+    linked: _linked,
   );
 
+  static Future<String> deviceId() => _device ??= _readDeviceId();
+
+  static Future<String> _readDeviceId() async {
+    try {
+      final id = await _native.invokeMethod<String>('deviceId');
+      if (id != null) return id;
+    } catch (_) {}
+    const storage = FlutterSecureStorage();
+    try {
+      final saved = await storage.read(key: 'device_id');
+      if (saved != null) return saved;
+      final id = 'device-${const Uuid().v4()}';
+      await storage.write(key: 'device_id', value: id);
+      return id;
+    } catch (_) {
+      return 'device-${const Uuid().v4()}';
+    }
+  }
+
   static Future<void> init() async {
-    OneSignal.initialize(AppConfig.oneSignalAppId).then((_) => _changed());
+    _linked = {...?(await SharedPreferences.getInstance()).getStringList(linkedKey)};
+    OneSignal.initialize(AppConfig.oneSignalAppId).then((_) async {
+      try {
+        await OneSignal.login(await deviceId());
+      } catch (_) {}
+      await _changed();
+    });
     OneSignal.Notifications.addClickListener((e) => _emit(_fromNotification(e.notification, opened: true)));
     OneSignal.Notifications.addForegroundWillDisplayListener((e) {
       if (e.notification.additionalData?['kind'] == 'test') return;
@@ -132,7 +166,7 @@ abstract final class PushService {
     final now = status;
     await (await SharedPreferences.getInstance()).setBool(optedInKey, now.on);
     changes.add(now);
-    if (now.id != null && now.id != _registered) await register(_accounts);
+    if (now.id != null && now.id != _sentSubscription) await register(_accounts);
   }
 
   /// Asks for permission (offering the system settings when it was denied before) and opts the device back in.
@@ -164,20 +198,27 @@ abstract final class PushService {
     } catch (_) {}
   }
 
-  /// Tells each worker which of its addresses this device should be notified for; [removed] clears a worker left with none.
+  /// Tells each worker which of its addresses are on this phone; [removed] clears a worker left with none.
+  /// Sending the live subscription lets the worker delete the ones left behind by earlier installs.
   static Future<void> register(List<Account> accounts, {Account? removed}) async {
     _accounts = accounts;
-    final id = OneSignal.User.pushSubscription.id;
-    if (id == null || id.isEmpty) return;
-    _registered = id;
+    final device = await deviceId();
+    final subscription = OneSignal.User.pushSubscription.id;
+    if ((subscription ?? '').isNotEmpty) _sentSubscription = subscription;
     final workers = <String, (String, Set<String>)>{if (removed != null) removed.workerUrl: (removed.apiKey, <String>{})};
     for (final a in accounts) {
-      (workers[a.workerUrl] ??= (a.apiKey, <String>{})).$2.add(a.email);
+      (workers[a.workerUrl] ??= (a.apiKey, <String>{})).$2.add(a.email.toLowerCase());
     }
+    final linked = <String>{};
     for (final MapEntry(key: url, value: (key, addresses)) in workers.entries) {
       try {
-        await ApiClient(url, key).registerDevice(id, addresses);
-      } catch (_) {}
+        linked.addAll(await ApiClient(url, key).registerDevice(device, addresses, subscriptionId: subscription));
+      } catch (_) {
+        linked.addAll(addresses.where(_linked.contains));
+      }
     }
+    _linked = linked;
+    await (await SharedPreferences.getInstance()).setStringList(linkedKey, [...linked]);
+    changes.add(status);
   }
 }

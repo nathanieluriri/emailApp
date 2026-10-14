@@ -141,16 +141,18 @@ class _PushState extends ConsumerState<_Push> {
     }
   }
 
-  Future<void> _test(String id) async {
+  Future<void> _test() async {
     setState(() => _busy = true);
     try {
-      await ref.read(apiProvider).testPush(id);
+      await PushService.register(ref.read(accountsProvider).value?.accounts ?? const []);
+      final linked = await ref.read(apiProvider).testPush(await PushService.deviceId());
       Feel.commit.ring();
-      if (mounted) showToast(context, 'Sent. It should arrive in a few seconds');
+      if (!mounted) return;
+      showToast(context, linked.isEmpty ? 'Sent, but no mailbox is linked to this phone yet' : 'Sent. It should arrive in a few seconds');
     } catch (e) {
       if (!mounted) return;
       final unsubscribed = '$e'.contains('not subscribed');
-      showToast(context, unsubscribed ? 'OneSignal does not see this phone as subscribed yet. Check the Firebase key in OneSignal.' : '$e');
+      showToast(context, unsubscribed ? 'OneSignal has not linked this phone yet. Give it a minute and try again.' : '$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -163,7 +165,8 @@ class _PushState extends ConsumerState<_Push> {
       PushStatus(permission: false) => ('Off. Allow notifications to hear about new mail', false),
       PushStatus(optedIn: false) => ('Paused on this phone', false),
       PushStatus(registered: false) => ('Allowed, waiting for a push ID from OneSignal', false),
-      _ => ('On. New mail arrives with sound, grouped by account', true),
+      PushStatus(linked: Set(isEmpty: true)) => ('On, but your mail server has not linked this phone yet', false),
+      _ => ('On for ${push.linked.length == 1 ? push.linked.first : push.linked.map((a) => '${a.split('@').first}@').join(', ')}', true),
     };
     return Column(
       children: [
@@ -186,8 +189,8 @@ class _PushState extends ConsumerState<_Push> {
         SettingsRow(
           icon: LucideIcons.send,
           title: 'Send a test notification',
-          subtitle: push.registered ? 'Checks that new mail reaches this phone' : 'Available once this phone has a push ID',
-          onTap: _busy || !push.registered ? null : () => _test(push.id!),
+          subtitle: push.registered ? 'Sends a sample through your mail server to this phone' : 'Available once this phone has a push ID',
+          onTap: _busy || !push.registered ? null : _test,
         ),
         SettingsRow(
           icon: LucideIcons.smartphone,
