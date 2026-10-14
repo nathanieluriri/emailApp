@@ -32,9 +32,13 @@ Set `PUBLIC_HOST` in `wrangler.jsonc` to the host the app uses (workers.dev or a
 
 Already set up on `bridgewoodinvestment.ng`: `admin@`, `info@`, `support@` and `noreply@` go to the worker; the catch-all is left as it was.
 
+### Routing
+
+Email Routing only delivers to the worker the addresses that have a rule pointing at it; everything else follows the zone's catch-all. So every address the app uses gets its own rule automatically: the addresses a phone links (`PUT /devices`) and every From address the worker sends from. An address that already has a rule pointing elsewhere is left alone, and handled addresses are remembered in `routed_addresses`.
+
 ### Catch-all override
 
-`PUT /routing/catch-all {"toWorker": true}` points the zone's catch-all at the worker and saves the previous rule; `{"toWorker": false}` restores it. `GET /routing/catch-all` reports the current state. It needs:
+`PUT /routing/catch-all {"toWorker": true}` points the zone's catch-all at the worker and saves the previous rule; `{"toWorker": false}` restores it. `GET /routing/catch-all` reports the current state. Both features need:
 
 ```sh
 # Cloudflare dashboard, My Profile or Account, API Tokens, Create token:

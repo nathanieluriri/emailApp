@@ -273,7 +273,7 @@ class _CatchAllState extends ConsumerState<_CatchAll> {
       title: 'Receive mail for every address',
       subtitle: switch (state) {
         AsyncError(:final error) => '$error',
-        AsyncValue(hasValue: true) => on ? 'Every address on the domain gets mail. Add one as an account to read it.' : 'Only the sender addresses get mail',
+        AsyncValue(hasValue: true) => on ? 'Every address on the domain gets mail. Add one as an account to read it.' : 'Your accounts and the addresses you send from get mail',
         _ => 'Checking',
       },
       value: on,

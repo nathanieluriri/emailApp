@@ -11,6 +11,7 @@ import { send } from '../src/send.js';
 import { listMessages, getThread } from '../src/mail.js';
 import { listLabels } from '../src/labels.js';
 import { registerDevice, act } from '../src/push.js';
+import { routeHere } from '../src/routing.js';
 
 crypto.subtle.timingSafeEqual ??= (a, b) => timingSafeEqual(a, b);
 
@@ -146,4 +147,28 @@ test('each address sees and is notified about its own mail only', async () => {
   sqlite.exec('DELETE FROM message_owners');
   sqlite.exec(schema);
   assert.deepEqual(await list('nat@bw.ng', 'sent'), ['out:Memo:1', 'out:Visit:2']);
+});
+
+test('addresses used in the app are routed to the worker unless they already have a rule', async () => {
+  const created = [];
+  const listed = [
+    { matchers: [{ type: 'literal', field: 'to', value: 'admin@bw.ng' }], actions: [{ type: 'worker', value: ['bridgewood-mail'] }], enabled: true },
+    { matchers: [{ type: 'literal', field: 'to', value: 'boss@bw.ng' }], actions: [{ type: 'forward', value: ['boss@x.com'] }], enabled: true },
+    { matchers: [{ type: 'all' }], actions: [{ type: 'forward', value: ['owner@x.com'] }], enabled: true },
+  ];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, o = {}) => {
+    if (o.method === 'POST') created.push(JSON.parse(o.body).matchers[0].value);
+    return Response.json({ success: true, result: o.method === 'POST' ? {} : listed });
+  };
+  try {
+    const routing = { ...env, CF_API_TOKEN: 't', CF_ZONE_ID: 'z' };
+    await routeHere(routing, db, ['Test@bw.ng', 'admin@bw.ng', 'boss@bw.ng', 'someone@x.com']);
+    assert.deepEqual(created, ['test@bw.ng']);
+    assert.deepEqual((await db.all('SELECT address FROM routed_addresses ORDER BY address')).map((r) => r.address), ['admin@bw.ng', 'test@bw.ng']);
+    await routeHere(routing, db, ['test@bw.ng', 'admin@bw.ng']);
+    assert.deepEqual(created, ['test@bw.ng']);
+  } finally {
+    globalThis.fetch = original;
+  }
 });
