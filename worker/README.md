@@ -62,6 +62,10 @@ npx wrangler secret put ROUTING_KEYS   # optional: only these API keys may chang
 
 Each new mail notifies the phones registered for the mailbox that received it (`PUT /devices/:deviceId`), with one notification per conversation, so a busy thread updates in place instead of stacking. The payload carries the sender, subject, mailbox address and that mailbox's last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per mailbox with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail to the same mailbox is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `mail`, a high-importance channel the app creates.
 
+### Unread reminders
+
+A cron trigger (every 30 minutes, free on Workers) pushes unread inbox mail again: an hour after it arrived, and once more a day later, never more than twice and only for mail from the last three days. Each mailbox gets one notification: a single conversation comes back as itself (with Archive, Mark as read and Reply), several come as a list of senders and subjects. Phones send their UTC offset with `PUT /devices/:deviceId`, so reminders wait for 8:00 to 21:00 on the phone's clock, and `remind: false` turns them off for that phone.
+
 ## Mailboxes
 
 Every stored message records which addresses own it (`message_owners`): the delivered-to address and the To and Cc addresses of received mail, and the From address (plus the sending account) of sent mail. A request with an `X-Mailbox: <address>` header only sees that mailbox: Inbox is what it received, Sent is what it sent, and search, labels, counts and threads follow the same rule. Mail between two addresses on the domain is stored once when sent, and its delivery adds the recipient's copy. Requests without the header see everything, as before. Applying `schema.sql` again gives existing mail its owners.
@@ -92,11 +96,11 @@ All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bea
 | `POST /send` | `{from, fromName, to[], cc[], bcc[], subject, html, text, attachments[{filename,type,content(base64)}], inReplyTo}` |
 | `GET /attachments/:id` | raw file |
 | `GET/POST /labels`, `PATCH/DELETE /labels/:id` | system labels: inbox, sent, spam, trash |
-| `GET /senders` | from `SENDERS` var (local parts) or admin, info, support, noreply |
+| `GET /senders` | from `SENDERS` var (local parts) or admin, info, support, noreply. With `X-Mailbox`, also `name`: what that address last sent as, or else what others last wrote to it as |
 | `/templates`, `/signatures` | `GET`, `POST`, `GET/PATCH/DELETE /:id` |
 | `POST /uploads` | image (raw body or multipart `file`), returns `{key, url}` |
 | `GET /img/:key` | public image for use inside sent mail |
 | `GET/PUT /routing/catch-all` | `{toWorker}`; see Catch-all override |
 | `POST /push/test` | `{device}`: sends a sample notification to one phone the same way new mail is sent, returns the mailboxes linked to it, or OneSignal's error if it cannot be delivered |
-| `PUT /devices/:deviceId` | `{addresses[], subscriptionId}`: the mailboxes this phone is notified for (replaces the list). Phones sign in to OneSignal with the device id as their External ID, so pushes target the phone, and the worker deletes the push subscriptions earlier installs left on it, keeping `subscriptionId` |
+| `PUT /devices/:deviceId` | `{addresses[], subscriptionId, utcOffset, remind}`: the mailboxes this phone is notified for (replaces the list). Phones sign in to OneSignal with the device id as their External ID, so pushes target the phone, and the worker deletes the push subscriptions earlier installs left on it, keeping `subscriptionId` |
 | `POST /actions/:threadId/:action` | public, `{token, address}` from the push payload (the token is good for 30 days); `read` or `archive` that mailbox's copy of the conversation from a notification button, or `reply` with `{text, messageId}` to answer from the notification |

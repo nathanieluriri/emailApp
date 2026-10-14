@@ -4,6 +4,7 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
+  "triggers": { "crons": ["*/30 * * * *"] },
   "send_email": [{ "name": "EMAIL" }],
   "d1_databases": [
     { "binding": "DB", "database_name": "bridgewood-mail", "database_id": "24734dcb-36ee-4cfc-b11f-5c44cd295471" }

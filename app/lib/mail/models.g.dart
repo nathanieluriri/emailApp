@@ -137,4 +137,5 @@ Sender _$SenderFromJson(Map<String, dynamic> json) => Sender(address: json['addr
 Senders _$SendersFromJson(Map<String, dynamic> json) => Senders(
   domain: json['domain'] as String,
   senders: (json['senders'] as List<dynamic>).map((e) => Sender.fromJson(e as Map<String, dynamic>)).toList(),
+  name: json['name'] as String? ?? '',
 );

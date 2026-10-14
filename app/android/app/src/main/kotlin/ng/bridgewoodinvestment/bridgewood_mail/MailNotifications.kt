@@ -61,15 +61,16 @@ object MailNotifications {
         val latest = lines.lastOrNull() ?: return builder
         val subject = data.optString("subject")
         val account = data.optString("account").ifEmpty { null }
+        val digest = data.optString("kind") == "unread"
 
         builder
             .setChannelId(CHANNEL)
             .setCategory(NotificationCompat.CATEGORY_EMAIL)
             .setColor(accent(context))
-            .setLargeIcon(avatar(context, latest.from))
-            .setContentTitle(latest.from)
-            .setContentText(subject)
-            .setSubText(account)
+            .setLargeIcon(if (digest) null else avatar(context, latest.from))
+            .setContentTitle(if (digest) subject else latest.from)
+            .setContentText(if (digest) lines.map { it.from }.distinct().joinToString(", ") else subject)
+            .setSubText(if (data.optInt("reminder") == 1) "Unread · $account" else account)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 NotificationCompat.Builder(context, CHANNEL)
@@ -80,7 +81,13 @@ object MailNotifications {
                     .build(),
             )
             .setSilent(data.optInt("quiet") == 1)
-            .setStyle(if (lines.size > 1) conversation(context, subject, lines) else letter(subject, latest.text))
+            .setStyle(
+                when {
+                    digest -> unread(subject, lines, data.optInt("more"))
+                    lines.size > 1 -> conversation(context, subject, lines)
+                    else -> letter(subject, latest.text)
+                },
+            )
 
         // Only new mail carries a token, so reactions and test pushes get no buttons.
         if (data.has("token")) {
@@ -139,6 +146,16 @@ object MailNotifications {
             .append('\n')
             .append(text),
     )
+
+    // Unread mail from several conversations: who wrote, in bold, then the subject.
+    private fun unread(title: String, lines: List<Line>, more: Int): NotificationCompat.Style {
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(title)
+        for (line in lines) {
+            style.addLine(SpannableStringBuilder().append(line.from, StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE).append("  ").append(line.text))
+        }
+        if (more > 0) style.setSummaryText("+$more more")
+        return style
+    }
 
     private fun conversation(context: Context, subject: String, lines: List<Line>): NotificationCompat.Style {
         val style = NotificationCompat.MessagingStyle(Person.Builder().setName("You").build())

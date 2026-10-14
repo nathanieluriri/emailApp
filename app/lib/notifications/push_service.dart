@@ -63,6 +63,7 @@ abstract final class PushService {
   static const pushIdsKey = 'push_ids';
   static const optedInKey = 'push_opted_in';
   static const linkedKey = 'push_linked';
+  static const remindKey = 'daily_reminder';
   static const _native = MethodChannel('quirepost/notifications');
   static final events = StreamController<PushEvent>.broadcast();
   static final changes = StreamController<PushStatus>.broadcast();
@@ -109,8 +110,11 @@ abstract final class PushService {
     });
     OneSignal.Notifications.addClickListener((e) => _emit(_fromNotification(e.notification, opened: true)));
     OneSignal.Notifications.addForegroundWillDisplayListener((e) {
-      if (e.notification.additionalData?['kind'] == 'test') return;
+      final data = e.notification.additionalData ?? const {};
+      if (data['kind'] == 'test') return;
       e.preventDefault();
+      // A reminder about unread mail is moot while the app is open.
+      if (data['kind'] == 'unread' || data['reminder'] == 1) return;
       _emit(_fromNotification(e.notification, opened: false));
     });
     OneSignal.Notifications.addPermissionObserver((_) => _changed());
@@ -214,16 +218,21 @@ abstract final class PushService {
     for (final a in accounts) {
       (workers[a.workerUrl] ??= (a.apiKey, <String>{})).$2.add(a.email.toLowerCase());
     }
+    final prefs = await SharedPreferences.getInstance();
+    final remind = prefs.getBool(remindKey) ?? true;
+    final offset = DateTime.now().timeZoneOffset.inMinutes;
     final linked = <String>{};
     for (final MapEntry(key: url, value: (key, addresses)) in workers.entries) {
       try {
-        linked.addAll(await ApiClient(url, key).registerDevice(device, addresses, subscriptionId: subscription));
+        linked.addAll(
+          await ApiClient(url, key).registerDevice(device, addresses, subscriptionId: subscription, utcOffset: offset, remind: remind),
+        );
       } catch (_) {
         linked.addAll(addresses.where(_linked.contains));
       }
     }
     _linked = linked;
-    await (await SharedPreferences.getInstance()).setStringList(linkedKey, [...linked]);
+    await prefs.setStringList(linkedKey, [...linked]);
     changes.add(status);
   }
 }

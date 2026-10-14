@@ -194,9 +194,13 @@ class Sender {
 
 @JsonSerializable(createToJson: false)
 class Senders {
-  const Senders({required this.domain, required this.senders});
+  const Senders({required this.domain, required this.senders, this.name = ''});
   final String domain;
   final List<Sender> senders;
+
+  /// The name the asking mailbox goes by on this server, when it knows one.
+  @JsonKey(defaultValue: '')
+  final String name;
 
   factory Senders.fromJson(Map<String, dynamic> json) => _$SendersFromJson(json);
 }

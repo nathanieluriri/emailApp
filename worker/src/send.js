@@ -14,13 +14,31 @@ const toApi = (list) => list.map((r) => (r.name ? { email: r.address, name: r.na
 
 const decode = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
-export function senders({ env, url, ctx, db }) {
+export async function senders({ env, url, ctx, db, mailbox }) {
   ctx.waitUntil(db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('host', ?)", url.host).catch(() => {}));
   const locals = env.SENDERS ? env.SENDERS.split(',').map((s) => s.trim()).filter(Boolean) : DEFAULT_SENDERS;
   return {
     domain: env.ALLOWED_DOMAIN,
     senders: locals.map((l) => ({ address: `${l}@${env.ALLOWED_DOMAIN}`, name: l[0].toUpperCase() + l.slice(1) })),
+    ...(mailbox && { name: await knownName(db, mailbox) }),
   };
+}
+
+// The name an address goes by: the one it last sent with, or else the one others last wrote to it as.
+async function knownName(db, address) {
+  const sent = await db.first(
+    "SELECT from_name AS name FROM messages WHERE lower(from_addr) = ? AND coalesce(from_name, '') != '' ORDER BY date DESC LIMIT 1",
+    address,
+  );
+  if (sent) return sent.name;
+  const addressed = await db.first(
+    `SELECT json_extract(r.value, '$.name') AS name FROM messages m, json_each(m.to_json) r
+     WHERE m.id IN (SELECT message_id FROM message_owners WHERE address = ? AND role = 'to')
+       AND lower(json_extract(r.value, '$.address')) = ? AND coalesce(json_extract(r.value, '$.name'), '') != ''
+     ORDER BY m.date DESC LIMIT 1`,
+    address, address,
+  );
+  return addressed?.name ?? '';
 }
 
 async function deliver(env, db, b, mailbox, ctx) {

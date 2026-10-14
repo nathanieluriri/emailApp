@@ -111,6 +111,23 @@ CREATE TABLE IF NOT EXISTS device_mailboxes (
 );
 CREATE INDEX IF NOT EXISTS idx_device_mailboxes_address ON device_mailboxes(address);
 
+-- What a phone told the worker about itself: its clock, for reminding only in the daytime, and whether it wants reminders.
+CREATE TABLE IF NOT EXISTS devices (
+  device_id TEXT PRIMARY KEY,
+  utc_offset INTEGER NOT NULL DEFAULT 0,
+  remind INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL
+);
+
+-- How many times unread mail has been pushed again to a mailbox, and when last.
+CREATE TABLE IF NOT EXISTS reminders (
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  address TEXT NOT NULL,
+  sent INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (message_id, address)
+);
+
 CREATE TABLE IF NOT EXISTS routed_addresses (
   address TEXT PRIMARY KEY,
   routed_at INTEGER NOT NULL
