@@ -10,6 +10,7 @@ import '../compose/drafts_screen.dart';
 import '../mail/inbox_screen.dart';
 import '../mail/search_screen.dart';
 import '../mail/thread_screen.dart';
+import '../settings/account_screen.dart';
 import '../settings/settings_screen.dart';
 import '../signatures/signature.dart';
 import '../signatures/signature_editor.dart';
@@ -70,6 +71,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/search', pageBuilder: (_, s) => _fadePage(s, const SearchScreen())),
       GoRoute(path: '/drafts', pageBuilder: (_, s) => slidePage(s, const DraftsScreen())),
       GoRoute(path: '/settings', pageBuilder: (_, s) => slidePage(s, const SettingsScreen())),
+      GoRoute(
+        path: '/settings/account/:id',
+        pageBuilder: (_, s) => slidePage(s, AccountScreen(accountId: s.pathParameters['id']!)),
+      ),
       GoRoute(
         path: '/templates',
         pageBuilder: (_, s) => slidePage(s, TemplatesScreen(pick: s.uri.queryParameters['pick'] == '1')),

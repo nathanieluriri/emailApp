@@ -282,7 +282,7 @@ class _TopBar extends ConsumerWidget {
                     turns: Tween(begin: 0.75, end: 1.0).animate(a),
                     child: ScaleTransition(scale: a, child: child),
                   ),
-                  child: Avatar(key: ValueKey(account?.id), name: account?.nickname ?? '?', size: 34),
+                  child: Avatar(key: ValueKey(account?.id), name: account?.name ?? '?', size: 34),
                 ),
               ),
             ),

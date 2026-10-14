@@ -61,7 +61,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           onSubmitted: (v) => setState(() => _query = v.trim()),
                           textInputAction: TextInputAction.search,
                           style: AppText.search.copyWith(color: AppColors.ink),
-                          decoration: const InputDecoration(hintText: 'Search in emails', fillColor: Colors.transparent),
+                          decoration: bareInput(hint: 'Search in emails'),
                         ),
                       ),
                       if (_query.isNotEmpty)

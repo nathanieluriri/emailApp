@@ -34,7 +34,7 @@ class Drafts extends Table {
 
 @DriftDatabase(tables: [CachedLists, CachedThreads, Drafts])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(driftDatabase(name: 'bridgewood_mail'));
+  AppDatabase([QueryExecutor? executor]) : super(executor ?? driftDatabase(name: 'bridgewood_mail'));
 
   @override
   int get schemaVersion => 1;

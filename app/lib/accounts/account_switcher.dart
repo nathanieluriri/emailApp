@@ -23,7 +23,6 @@ class _Switcher extends ConsumerWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const SheetTitle('Accounts'),
         for (final (i, a) in accounts.indexed)
           EntryMotion(
             index: i,
@@ -37,14 +36,14 @@ class _Switcher extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 child: Row(
                   children: [
-                    Avatar(name: a.nickname),
+                    Avatar(name: a.name),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(a.nickname, style: AppText.rowTitle.copyWith(color: AppColors.ink)),
-                          Text(a.host, style: AppText.docMeta.copyWith(color: AppColors.inkSoft)),
+                          Text(a.name, style: AppText.rowTitle.copyWith(color: AppColors.ink)),
+                          Text(a.email, style: AppText.docMeta.copyWith(color: AppColors.inkSoft)),
                         ],
                       ),
                     ),
@@ -59,8 +58,9 @@ class _Switcher extends ConsumerWidget {
               ),
             ),
           ),
+        Divider(height: 16, color: AppColors.hairline),
         SheetRow(
-          label: 'Add another account',
+          label: 'Add an account',
           icon: LucideIcons.userPlus,
           onTap: () {
             Navigator.pop(context);

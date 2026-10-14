@@ -22,6 +22,7 @@ class PillButton extends StatelessWidget {
     this.filled = true,
     this.busy = false,
     this.feel = Feel.tap,
+    this.expand = false,
   });
 
   final String label;
@@ -30,6 +31,7 @@ class PillButton extends StatelessWidget {
   final bool filled;
   final bool busy;
   final Feel feel;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
@@ -44,14 +46,16 @@ class PillButton extends StatelessWidget {
         duration: kDim,
         opacity: onTap == null ? 0.5 : 1,
         child: Container(
-          height: 44,
+          height: expand ? 52 : 44,
+          width: expand ? double.infinity : null,
           padding: const EdgeInsets.symmetric(horizontal: 20),
           decoration: BoxDecoration(
             color: filled ? AppColors.accent : AppColors.surfaceHigh,
             borderRadius: BorderRadius.circular(kPillRadius),
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (busy) QuireSpinner(size: 20, color: fg) else if (icon != null) Icon(icon, size: 18, color: fg),
               if (busy || icon != null) const SizedBox(width: 8),
@@ -519,3 +523,16 @@ Color parseHex(String? hex, Color fallback) {
 }
 
 String toHex(Color c) => '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+
+/// A borderless field for inline rows (recipients, subject, search) that should read as text, not as a form box.
+InputDecoration bareInput({String? hint, TextStyle? hintStyle, EdgeInsets padding = const EdgeInsets.symmetric(vertical: 14)}) =>
+    InputDecoration(
+      hintText: hint,
+      hintStyle: hintStyle,
+      isDense: true,
+      filled: false,
+      contentPadding: padding,
+      border: InputBorder.none,
+      enabledBorder: InputBorder.none,
+      focusedBorder: InputBorder.none,
+    );

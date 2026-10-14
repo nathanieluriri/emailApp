@@ -273,6 +273,7 @@ class _MessageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final m = message;
+    final sender = m.outgoing ? 'Me' : m.from.display;
     final avatar = Avatar(name: m.from.display);
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
@@ -302,7 +303,7 @@ class _MessageCard extends StatelessWidget {
                             children: [
                               Flexible(
                                 child: Text(
-                                  m.from.display,
+                                  sender,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppText.rowTitle.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),

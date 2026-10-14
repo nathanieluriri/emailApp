@@ -12,7 +12,15 @@ class AccountsRepository {
   Future<List<Account>> load() async {
     final raw = await _storage.read(key: _accountsKey);
     if (raw == null) return [];
-    return (jsonDecode(raw) as List).map((e) => Account.fromJson(e)).toList();
+    final accounts = <Account>[];
+    for (final e in jsonDecode(raw) as List) {
+      try {
+        accounts.add(Account.fromJson(e));
+      } catch (_) {
+        // Saved before accounts carried an email and display name; it has to be added again.
+      }
+    }
+    return accounts;
   }
 
   Future<void> save(List<Account> accounts) =>

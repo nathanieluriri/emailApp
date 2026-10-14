@@ -54,11 +54,32 @@ ThemeData buildTheme(Palette p) {
       systemOverlayStyle: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
     ),
     inputDecorationTheme: InputDecorationTheme(
-      filled: true,
-      fillColor: p.surfaceHigh,
+      labelStyle: AppText.search.copyWith(color: p.inkSoft),
+      floatingLabelStyle: AppText.label.copyWith(color: p.accentBright),
       hintStyle: AppText.search.copyWith(color: p.inkFaint),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      helperStyle: AppText.docMeta.copyWith(color: p.inkSoft),
+      errorStyle: AppText.docMeta.copyWith(color: p.damage),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: p.hairline),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: p.inkFaint.withValues(alpha: 0.6)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: p.accentBright, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: p.damage),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: p.damage, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     ),
     textSelectionTheme: TextSelectionThemeData(
       cursorColor: p.accentBright,

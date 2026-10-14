@@ -86,6 +86,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   String? _sourceId;
   final _attachments = <_Attachment>[];
   bool _sending = false;
+  bool _formatting = false;
   Timer? _autosave;
 
   @override
@@ -128,8 +129,13 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     setState(() {
       _cc = _cc.where((a) => !own.contains(a.toLowerCase())).toList();
       _showCopies = _showCopies && (_cc.isNotEmpty || _bcc.isNotEmpty);
+      final account = ref.read(activeAccountProvider);
       if (_from.isEmpty) _from = _defaultFrom();
-      if (_fromName.isEmpty) _fromName = _senders?.senders.where((s) => s.address == _from).firstOrNull?.name ?? '';
+      if (_fromName.isEmpty) {
+        _fromName = _from == account?.email
+            ? account!.displayName
+            : _senders?.senders.where((s) => s.address == _from).firstOrNull?.name ?? '';
+      }
       _pickSignature();
     });
   }
@@ -140,7 +146,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     final mine = source == null
         ? null
         : [...source.to, ...source.cc].map((a) => a.address.toLowerCase()).where((a) => senders.any((s) => s.address == a)).firstOrNull;
-    return mine ?? senders.where((s) => s.localPart == 'admin').firstOrNull?.address ?? senders.firstOrNull?.address ?? '';
+    return mine ?? ref.read(activeAccountProvider)?.email ?? senders.firstOrNull?.address ?? '';
   }
 
   void _pickSignature() {
@@ -327,7 +333,11 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   }
 
   Future<void> _chooseFrom() async {
-    final senders = _senders?.senders ?? [];
+    final account = ref.read(activeAccountProvider);
+    final senders = [
+      if (account != null) Sender(address: account.email, name: account.displayName),
+      ...?_senders?.senders.where((s) => s.address != account?.email),
+    ];
     final domain = _senders?.domain ?? _from.split('@').last;
     final local = TextEditingController(text: _from.split('@').first);
     final name = TextEditingController(text: _fromName);
@@ -436,9 +446,18 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           SheetRow(label: 'Preview', icon: LucideIcons.eye, onTap: () => Navigator.pop(sheet, 'preview')),
-          SheetRow(label: 'Send test to myself', icon: LucideIcons.sendHorizontal, onTap: () => Navigator.pop(sheet, 'test')),
+          SheetRow(label: 'Send a test to myself', icon: LucideIcons.sendHorizontal, onTap: () => Navigator.pop(sheet, 'test')),
           SheetRow(label: 'Use a template', icon: LucideIcons.layoutTemplate, onTap: () => Navigator.pop(sheet, 'template')),
           SheetRow(label: 'Save as template', icon: LucideIcons.bookmarkPlus, onTap: () => Navigator.pop(sheet, 'save')),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('ADVANCED', style: AppText.chipLabel.copyWith(color: AppColors.inkFaint)),
+            ),
+          ),
+          SheetRow(label: 'Design with blocks', icon: LucideIcons.layoutPanelTop, onTap: () => Navigator.pop(sheet, 'builder')),
+          SheetRow(label: 'Write in HTML', icon: LucideIcons.code, onTap: () => Navigator.pop(sheet, 'html')),
           SheetRow(label: 'Discard draft', icon: LucideIcons.trash2, destructive: true, onTap: () => Navigator.pop(sheet, 'discard')),
           const SizedBox(height: 8),
         ],
@@ -474,11 +493,42 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
         } catch (e) {
           if (mounted) showToast(context, '$e');
         }
+      case 'builder':
+        if (_body.mode != BodyMode.builder) _body.setMode(BodyMode.builder);
+        await _openAdvanced();
+      case 'html':
+        if (_body.mode != BodyMode.html) {
+          if (_body.html.text.trim().isEmpty && !_body.isRichEmpty) _body.html.text = _body.render();
+          _body.setMode(BodyMode.html);
+        }
+        await _openAdvanced();
       case 'discard':
         _autosave?.cancel();
         await ref.read(databaseProvider).deleteDraft(_draftId);
         if (mounted) context.pop();
     }
+  }
+
+  Future<void> _openAdvanced() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AdvancedEditorScreen(controller: _body, uploadImage: () => pickAndUploadImage(context, ref)),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _backToPlain() async {
+    if (!await confirm(
+      context,
+      title: 'Go back to a plain email?',
+      action: 'Use plain email',
+      body: 'The design is kept in your draft until you send.',
+    )) {
+      return;
+    }
+    _body.setMode(BodyMode.rich);
+    setState(() {});
   }
 
   Future<void> _close() async {
@@ -492,6 +542,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   @override
   Widget build(BuildContext context) {
     final divider = Divider(height: 1, color: AppColors.hairline);
+    final plain = _body.mode == BodyMode.rich;
     return Hero(
       tag: 'compose',
       flightShuttleBuilder: composeFlight,
@@ -502,112 +553,158 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
         },
         child: Scaffold(
           appBar: AppBar(
-            leading: IconPress(icon: LucideIcons.arrowLeft, label: 'Close', onTap: _close),
+            leading: IconPress(icon: LucideIcons.x, label: 'Close', onTap: _close),
             actions: [
               IconPress(icon: LucideIcons.paperclip, label: 'Attach', onTap: _attach),
-              _sending
-                  ? const Padding(padding: EdgeInsets.all(12), child: QuireSpinner(size: 22))
-                  : IconPress(icon: LucideIcons.sendHorizontal, label: 'Send', color: AppColors.accentBright, onTap: _send),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _sending
+                    ? const Padding(padding: EdgeInsets.all(12), child: QuireSpinner(size: 22))
+                    : IconPress(icon: LucideIcons.sendHorizontal, label: 'Send', color: AppColors.accentBright, onTap: _send),
+              ),
               IconPress(icon: LucideIcons.ellipsisVertical, label: 'More', onTap: _menu),
             ],
           ),
           body: Column(
             children: [
-              PaperPress(
-                onTap: _chooseFrom,
-                semanticLabel: 'Change sender',
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              Expanded(
+                child: CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          _FromRow(name: _fromName, address: _from, onTap: _chooseFrom),
+                          divider,
+                          RecipientField(
+                            key: _toKey,
+                            label: 'To',
+                            values: _to,
+                            onChanged: (v) {
+                              setState(() => _to = v);
+                              _changed();
+                            },
+                            trailing: _showCopies
+                                ? null
+                                : TextButton(
+                                    onPressed: () {
+                                      Feel.tap.ring();
+                                      setState(() => _showCopies = true);
+                                    },
+                                    child: Text('Cc/Bcc', style: AppText.label.copyWith(color: AppColors.inkSoft)),
+                                  ),
+                          ),
+                          AnimatedSize(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            child: _showCopies
+                                ? Column(
+                                    children: [
+                                      divider,
+                                      RecipientField(label: 'Cc', values: _cc, onChanged: (v) => setState(() => _cc = v)),
+                                      divider,
+                                      RecipientField(label: 'Bcc', values: _bcc, onChanged: (v) => setState(() => _bcc = v)),
+                                    ],
+                                  )
+                                : const SizedBox(width: double.infinity),
+                          ),
+                          divider,
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: TextField(
+                              controller: _subject,
+                              textCapitalization: TextCapitalization.sentences,
+                              style: AppText.title.copyWith(color: AppColors.ink, fontWeight: FontWeight.w500),
+                              decoration: bareInput(
+                                hint: 'Subject',
+                                hintStyle: AppText.title.copyWith(color: AppColors.inkFaint, fontWeight: FontWeight.w400),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                            ),
+                          ),
+                          divider,
+                          if (_attachments.isNotEmpty)
+                            SizedBox(
+                              height: 52,
+                              child: ListView(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                                children: [
+                                  for (final a in _attachments)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: InputChip(
+                                        avatar: Icon(LucideIcons.paperclip, size: 16, color: AppColors.accentBright),
+                                        label: Text(
+                                          '${a.name}  ${fileSize(a.bytes.length)}',
+                                          style: AppText.label.copyWith(color: AppColors.ink),
+                                        ),
+                                        onDeleted: () => setState(() => _attachments.remove(a)),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: plain
+                          ? RichEditor(controller: _body.quill, toolbar: false, scrollable: false)
+                          : _DesignedBody(
+                              mode: _body.mode,
+                              onEdit: _openAdvanced,
+                              onPreview: () => showPreview(context, _assemble()),
+                              onPlain: _backToPlain,
+                            ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _Footer(
+                        signature: _signatureOff || !ref.watch(settingsProvider).autoSignature ? null : _signature,
+                        quote: _quote,
+                        onSignature: _chooseSignature,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (plain)
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 200),
+                  child: _formatting
+                      ? DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: Border(top: BorderSide(color: AppColors.hairline)),
+                          ),
+                          child: FormatBar(controller: _body.quill),
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+              SafeArea(
+                top: false,
+                child: Container(
+                  height: 48,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: AppColors.hairline)),
+                  ),
                   child: Row(
                     children: [
-                      SizedBox(
-                        width: 48,
-                        child: Text('From', style: AppText.search.copyWith(color: AppColors.inkSoft)),
-                      ),
-                      Expanded(
-                        child: Text(
-                          _from.isEmpty ? 'Loading senders' : (_fromName.isEmpty ? _from : '$_fromName <$_from>'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppText.search.copyWith(color: AppColors.ink),
+                      if (plain)
+                        IconPress(
+                          icon: LucideIcons.aLargeSmall,
+                          label: 'Formatting',
+                          color: _formatting ? AppColors.accentBright : AppColors.inkSoft,
+                          onTap: () => setState(() => _formatting = !_formatting),
                         ),
-                      ),
-                      Icon(LucideIcons.chevronDown, size: 18, color: AppColors.inkSoft),
+                      IconPress(icon: LucideIcons.paperclip, label: 'Attach', color: AppColors.inkSoft, onTap: _attach),
+                      IconPress(icon: LucideIcons.signature, label: 'Signature', color: AppColors.inkSoft, onTap: _chooseSignature),
+                      const Spacer(),
+                      if (_attachments.isNotEmpty)
+                        Text('${_attachments.length} attached', style: AppText.docMeta.copyWith(color: AppColors.inkSoft)),
+                      const SizedBox(width: 12),
                     ],
                   ),
                 ),
-              ),
-              divider,
-              RecipientField(
-                key: _toKey,
-                label: 'To',
-                values: _to,
-                onChanged: (v) {
-                  setState(() => _to = v);
-                  _changed();
-                },
-                trailing: IconPress(
-                  icon: _showCopies ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-                  label: 'Cc and Bcc',
-                  size: 18,
-                  onTap: () => setState(() => _showCopies = !_showCopies),
-                ),
-              ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                child: _showCopies
-                    ? Column(
-                        children: [
-                          divider,
-                          RecipientField(label: 'Cc', values: _cc, onChanged: (v) => setState(() => _cc = v)),
-                          divider,
-                          RecipientField(label: 'Bcc', values: _bcc, onChanged: (v) => setState(() => _bcc = v)),
-                        ],
-                      )
-                    : const SizedBox(width: double.infinity),
-              ),
-              divider,
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: TextField(
-                  controller: _subject,
-                  style: AppText.search.copyWith(color: AppColors.ink),
-                  decoration: const InputDecoration(hintText: 'Subject', fillColor: Colors.transparent),
-                ),
-              ),
-              divider,
-              if (_attachments.isNotEmpty)
-                SizedBox(
-                  height: 48,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    children: [
-                      for (final a in _attachments)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: InputChip(
-                            avatar: Icon(LucideIcons.paperclip, size: 16, color: AppColors.accentBright),
-                            label: Text('${a.name}  ${fileSize(a.bytes.length)}', style: AppText.label.copyWith(color: AppColors.ink)),
-                            onDeleted: () => setState(() => _attachments.remove(a)),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: BodyEditor(controller: _body, uploadImage: () => pickAndUploadImage(context, ref)),
-              ),
-              _SignatureBar(
-                signature: _signatureOff ? null : _signature,
-                autoOn: ref.watch(settingsProvider).autoSignature,
-                hasQuote: _quote != null,
-                onChoose: _chooseSignature,
-                onRemove: () {
-                  Feel.tap.ring();
-                  setState(() => _signatureOff = true);
-                },
               ),
             ],
           ),
@@ -617,75 +714,166 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   }
 }
 
-class _SignatureBar extends StatelessWidget {
-  const _SignatureBar({
-    required this.signature,
-    required this.autoOn,
-    required this.hasQuote,
-    required this.onChoose,
-    required this.onRemove,
-  });
-  final Signature? signature;
-  final bool autoOn;
-  final bool hasQuote;
-  final VoidCallback onChoose;
-  final VoidCallback onRemove;
+class _FromRow extends StatelessWidget {
+  const _FromRow({required this.name, required this.address, required this.onTap});
+  final String name;
+  final String address;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final s = signature;
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: AppColors.hairline)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                PaperPress(
-                  onTap: onChoose,
-                  semanticLabel: 'Choose signature',
-                  washRadius: 16,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: AppColors.surfaceHigh, borderRadius: BorderRadius.circular(16)),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(LucideIcons.signature, size: 16, color: AppColors.accentBright),
-                        const SizedBox(width: 6),
+  Widget build(BuildContext context) => PaperPress(
+    onTap: onTap,
+    semanticLabel: 'Change sender',
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 12, 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 48,
+            child: Text('From', style: AppText.search.copyWith(color: AppColors.inkSoft)),
+          ),
+          if (address.isNotEmpty) ...[Avatar(name: name.isEmpty ? address : name, size: 28), const SizedBox(width: 10)],
+          Expanded(
+            child: address.isEmpty
+                ? Text('Loading', style: AppText.search.copyWith(color: AppColors.inkFaint))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name.isEmpty ? address : name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.search.copyWith(color: AppColors.ink, fontWeight: FontWeight.w500),
+                      ),
+                      if (name.isNotEmpty)
                         Text(
-                          s == null ? 'No signature' : (autoOn ? s.name : '${s.name} (auto off)'),
-                          style: AppText.label.copyWith(color: AppColors.ink),
+                          address,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.docMeta.copyWith(color: AppColors.inkSoft),
                         ),
-                        Icon(LucideIcons.chevronDown, size: 14, color: AppColors.inkSoft),
-                      ],
-                    ),
+                    ],
                   ),
-                ),
-                if (s != null) IconPress(icon: LucideIcons.x, label: 'Remove signature for this email', size: 16, onTap: onRemove),
-                const Spacer(),
-                if (hasQuote) Text('Quoted text below signature', style: AppText.docMeta.copyWith(color: AppColors.inkFaint)),
-              ],
-            ),
-            if (s != null && autoOn)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '-- ${htmlToPlain(s.html)}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.docMeta.copyWith(color: AppColors.inkSoft),
+          ),
+          Icon(LucideIcons.chevronDown, size: 18, color: AppColors.inkSoft),
+        ],
+      ),
+    ),
+  );
+}
+
+class _DesignedBody extends StatelessWidget {
+  const _DesignedBody({required this.mode, required this.onEdit, required this.onPreview, required this.onPlain});
+  final BodyMode mode;
+  final VoidCallback onEdit;
+  final VoidCallback onPreview;
+  final VoidCallback onPlain;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: AppColors.accentMuted, borderRadius: BorderRadius.circular(12)),
+                child: Icon(mode == BodyMode.html ? LucideIcons.code : LucideIcons.layoutPanelTop, size: 20, color: AppColors.accentBright),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(mode == BodyMode.html ? 'HTML email' : 'Designed email', style: AppText.rowTitle.copyWith(color: AppColors.ink)),
+                    Text('Tap Edit to change the design', style: AppText.docMeta.copyWith(color: AppColors.inkSoft)),
+                  ],
                 ),
               ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              PillButton(label: 'Edit', icon: LucideIcons.pencil, onTap: onEdit),
+              PillButton(label: 'Preview', icon: LucideIcons.eye, filled: false, onTap: onPreview),
+              PillButton(label: 'Plain email', filled: false, onTap: onPlain),
+            ],
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+/// The signature and quoted text sit under the message, quiet, the way they will in the sent email.
+class _Footer extends StatefulWidget {
+  const _Footer({required this.signature, required this.quote, required this.onSignature});
+  final Signature? signature;
+  final String? quote;
+  final VoidCallback onSignature;
+
+  @override
+  State<_Footer> createState() => _FooterState();
+}
+
+class _FooterState extends State<_Footer> {
+  bool _showQuote = false;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.signature != null)
+          PaperPress(
+            onTap: widget.onSignature,
+            semanticLabel: 'Change signature',
+            washRadius: 8,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                '--\n${htmlToPlain(widget.signature!.html)}',
+                style: AppText.bodyTight.copyWith(color: AppColors.inkSoft, height: 1.5),
+              ),
+            ),
+          ),
+        if (widget.quote != null) ...[
+          const SizedBox(height: 8),
+          PaperPress(
+            onTap: () => setState(() => _showQuote = !_showQuote),
+            semanticLabel: _showQuote ? 'Hide quoted text' : 'Show quoted text',
+            washRadius: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              decoration: BoxDecoration(color: AppColors.surfaceHigh, borderRadius: BorderRadius.circular(10)),
+              child: Icon(LucideIcons.ellipsis, size: 18, color: AppColors.inkSoft),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            child: _showQuote
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(htmlToPlain(widget.quote!), style: AppText.bodyTight.copyWith(color: AppColors.inkFaint)),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ],
+    ),
+  );
 }

@@ -11,7 +11,10 @@ flutter pub get
 dart run build_runner build --delete-conflicting-outputs   # json_serializable and drift code
 flutter run   # OneSignal App ID is set in lib/core/config.dart; override with --dart-define=ONESIGNAL_APP_ID=...
 flutter analyze && flutter test
+flutter test test/screens --update-goldens   # re-render the screen screenshots in test/screens/goldens (light and dark)
 ```
+
+Adding an account works like Outlook: enter your email, then the worker's access key, then the display name recipients see next to your address. A custom worker is under "Use a custom server".
 
 The default worker URL lives in `lib/core/config.dart` (`https://bridgewood-mail.<SUBDOMAIN>.workers.dev`, subdomain `uririnathaniel`). Onboarding checks it through `GET /health`, then asks for one of the worker's `API_KEYS` and verifies it with `GET /senders`. A custom worker must pass every route and check in the list, or onboarding says exactly what is missing.
 

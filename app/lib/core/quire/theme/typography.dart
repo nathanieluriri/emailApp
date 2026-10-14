@@ -17,6 +17,7 @@ TextStyle _text({
     fontSize: size,
     height: lineHeight / size,
     leadingDistribution: TextLeadingDistribution.even,
+    textBaseline: TextBaseline.alphabetic,
     fontWeight: weight,
     letterSpacing: letterSpacing,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
