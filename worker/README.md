@@ -56,13 +56,15 @@ npx wrangler secret put ROUTING_KEYS   # optional: only these API keys may chang
 2. Settings, Keys and IDs: copy the App ID and create a REST API key, then set both secrets above.
 3. Put the same App ID in the Flutter app config.
 
+Each new mail sends one notification per conversation (`collapse_id` `t-<threadId>`), so a busy thread updates in place instead of stacking. The payload carries the sender, subject, account address and the last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per worker host with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `mail`, a high-importance channel the app creates.
+
 ## Other databases
 
 `src/db.js` exposes `all`, `first`, `run`, `batch`. D1 is the default. Set `DB_DRIVER=libsql` with `LIBSQL_URL` and secret `LIBSQL_TOKEN` to use Turso/libSQL over HTTP (apply `schema.sql` there). Add another driver by returning the same four functions; the schema uses SQLite FTS5 for search.
 
 ## API
 
-All routes except `/health` and `/img/:key` need `Authorization: Bearer <key>`. JSON in and out, CORS open.
+All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bearer <key>`. JSON in and out, CORS open.
 
 | Route | Notes |
 |---|---|
@@ -79,3 +81,5 @@ All routes except `/health` and `/img/:key` need `Authorization: Bearer <key>`. 
 | `POST /uploads` | image (raw body or multipart `file`), returns `{key, url}` |
 | `GET /img/:key` | public image for use inside sent mail |
 | `GET/PUT /routing/catch-all` | `{toWorker}`; see Catch-all override |
+| `POST /push/test` | `{subscriptionId}`: sends a sample notification to one device and returns OneSignal's error if it cannot be delivered |
+| `POST /actions/:threadId/:action` | public, `{token}` from the push payload; `read` or `archive` the conversation from a notification button |

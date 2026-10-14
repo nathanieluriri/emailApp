@@ -27,6 +27,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <receiver
+            android:name=".MailActionReceiver"
+            android:exported="false" />
+        <meta-data
+            android:name="com.onesignal.NotificationServiceExtension"
+            android:value="ng.bridgewoodinvestment.bridgewood_mail.MailNotificationExtension" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

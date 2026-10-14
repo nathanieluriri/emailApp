@@ -6,6 +6,7 @@ import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'accounts/accounts_controller.dart';
+import 'compose/compose_args.dart';
 import 'core/brand.dart';
 import 'core/opening.dart';
 import 'core/providers.dart';
@@ -49,14 +50,30 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   @override
   void didChangePlatformBrightness() => setState(() {});
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final host = ref.read(accountsProvider).value?.active?.host;
+    if (state == AppLifecycleState.resumed && host != null) PushService.clearFor(host);
+  }
+
   Future<void> _openPush(PushEvent e) async {
     await ref.read(accountsProvider.future);
     final controller = ref.read(accountsProvider.notifier);
-    final account = e.host == null ? null : controller.byHost(e.host!);
-    if (account != null) await controller.switchTo(account.id);
+    if (e.host != null && ref.read(accountsProvider).value?.active?.host != e.host) {
+      final account = controller.byHost(e.host!);
+      if (account != null) await controller.switchTo(account.id);
+    }
+    final host = ref.read(accountsProvider).value?.active?.host;
+    if (host != null) PushService.clearFor(host);
     final router = ref.read(routerProvider);
     router.go('/inbox');
-    if (e.threadId != null) router.push('/thread/${e.threadId}');
+    if (e.threadId == null) return;
+    router.push('/thread/${e.threadId}');
+    if (e.action != PushAction.reply || e.messageId == null) return;
+    try {
+      final message = await ref.read(apiProvider).message(e.messageId!);
+      router.push('/compose', extra: ComposeArgs(kind: ComposeKind.reply, source: message));
+    } catch (_) {}
   }
 
   @override

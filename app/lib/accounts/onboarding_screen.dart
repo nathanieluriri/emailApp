@@ -138,13 +138,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           Account(id: const Uuid().v4(), email: _address, displayName: _name.text.trim(), workerUrl: _workerUrl, apiKey: _key.text.trim()),
         );
     Feel.commit.ring();
-    if (widget.adding && PushService.permitted) return _finish();
+    if (widget.adding && PushService.status.permission) return _finish();
     _go(_Step.notifications);
   }
 
   Future<void> _enableNotifications() async {
     setState(() => _busy = true);
-    await PushService.requestPermission();
+    await PushService.enable();
     final state = ref.read(accountsProvider).value;
     if (state != null) await PushService.syncTags(state.accounts, active: state.active);
     await Reminders.schedule(ref.read(settingsProvider).reminderMinutes);

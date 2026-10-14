@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -8,7 +9,9 @@ import '../core/providers.dart';
 import '../core/quire/theme/colors.dart';
 import '../core/quire/theme/feedback.dart';
 import '../core/widgets.dart';
+import '../core/quire/theme/metrics.dart';
 import '../notifications/push_service.dart';
+import '../notifications/push_status.dart';
 import '../notifications/reminders.dart';
 import 'settings_widgets.dart';
 
@@ -44,41 +47,8 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => context.push('/settings/account/${a.id}'),
             ),
           SettingsRow(icon: LucideIcons.userPlus, title: 'Add account', onTap: () => context.push('/onboarding?add=1')),
-          const SettingsSection('Appearance'),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
-            child: GooSegmented<ThemeMode>(
-              values: const [ThemeMode.system, ThemeMode.light, ThemeMode.dark],
-              labels: const ['System', 'Light', 'Dark'],
-              selected: settings.themeMode,
-              onChanged: (m) {
-                Feel.turn.ring();
-                control.setThemeMode(m);
-              },
-            ),
-          ),
-          const SettingsSection('Writing'),
-          SettingsRow(icon: LucideIcons.signature, title: 'Signatures', onTap: () => context.push('/signatures')),
-          SettingsSwitch(
-            icon: LucideIcons.penLine,
-            title: 'Add signature automatically',
-            subtitle: 'On new emails and replies',
-            value: settings.autoSignature,
-            onChanged: control.setAutoSignature,
-          ),
-          SettingsRow(icon: LucideIcons.layoutTemplate, title: 'Templates', onTap: () => context.push('/templates')),
           const SettingsSection('Notifications'),
-          SettingsRow(
-            icon: LucideIcons.bell,
-            title: PushService.permitted ? 'Notifications are on' : 'Turn on notifications',
-            subtitle: PushService.permitted ? 'New mail is pushed the moment it arrives' : null,
-            onTap: PushService.permitted
-                ? null
-                : () async {
-                    await PushService.requestPermission();
-                    if (state != null) await PushService.syncTags(state.accounts, active: state.active);
-                  },
-          ),
+          const _Push(),
           SettingsRow(
             icon: LucideIcons.clock,
             title: 'Check for unread mail',
@@ -112,6 +82,29 @@ class SettingsScreen extends ConsumerWidget {
             value: settings.dailyReminder,
             onChanged: control.setDailyReminder,
           ),
+          const SettingsSection('Appearance'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+            child: GooSegmented<ThemeMode>(
+              values: const [ThemeMode.system, ThemeMode.light, ThemeMode.dark],
+              labels: const ['System', 'Light', 'Dark'],
+              selected: settings.themeMode,
+              onChanged: (m) {
+                Feel.turn.ring();
+                control.setThemeMode(m);
+              },
+            ),
+          ),
+          const SettingsSection('Writing'),
+          SettingsRow(icon: LucideIcons.signature, title: 'Signatures', onTap: () => context.push('/signatures')),
+          SettingsSwitch(
+            icon: LucideIcons.penLine,
+            title: 'Add signature automatically',
+            subtitle: 'On new emails and replies',
+            value: settings.autoSignature,
+            onChanged: control.setAutoSignature,
+          ),
+          SettingsRow(icon: LucideIcons.layoutTemplate, title: 'Templates', onTap: () => context.push('/templates')),
           const SettingsSection('Mail routing'),
           const _CatchAll(),
         ],
@@ -120,6 +113,129 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   static String _interval(int m) => m < 60 ? '$m minutes' : (m == 60 ? 'hour' : '${m ~/ 60} hours');
+}
+
+class _Push extends ConsumerStatefulWidget {
+  const _Push();
+
+  @override
+  ConsumerState<_Push> createState() => _PushState();
+}
+
+class _PushState extends ConsumerState<_Push> {
+  bool _busy = false;
+
+  Future<void> _toggle(bool on) async {
+    setState(() => _busy = true);
+    try {
+      if (on) {
+        final granted = await PushService.enable();
+        final state = ref.read(accountsProvider).value;
+        if (granted && state != null) await PushService.syncTags(state.accounts, active: state.active);
+      } else {
+        await PushService.disable();
+      }
+      Feel.commit.ring();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _test(String id) async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(apiProvider).testPush(id);
+      Feel.commit.ring();
+      if (mounted) showToast(context, 'Sent. It should arrive in a few seconds');
+    } catch (e) {
+      if (!mounted) return;
+      final unsubscribed = '$e'.contains('not subscribed');
+      showToast(context, unsubscribed ? 'OneSignal does not see this phone as subscribed yet. Check the Firebase key in OneSignal.' : '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final push = ref.watch(pushStatusProvider);
+    final (detail, healthy) = switch (push) {
+      PushStatus(permission: false) => ('Off. Allow notifications to hear about new mail', false),
+      PushStatus(optedIn: false) => ('Paused on this phone', false),
+      PushStatus(registered: false) => ('Allowed, waiting for a push ID from OneSignal', false),
+      _ => ('On. New mail arrives with sound, grouped by account', true),
+    };
+    return Column(
+      children: [
+        SettingsRow(
+          icon: LucideIcons.bell,
+          leading: _StatusIcon(on: push.permission && push.optedIn, healthy: healthy),
+          title: 'Push notifications',
+          subtitle: detail,
+          onTap: _busy ? null : () => _toggle(!(push.permission && push.optedIn)),
+          trailing: Switch(
+            value: push.permission && push.optedIn,
+            onChanged: _busy
+                ? null
+                : (v) {
+                    Feel.tap.ring();
+                    _toggle(v);
+                  },
+          ),
+        ),
+        SettingsRow(
+          icon: LucideIcons.send,
+          title: 'Send a test notification',
+          subtitle: push.registered ? 'Checks that new mail reaches this phone' : 'Available once this phone has a push ID',
+          onTap: _busy || !push.registered ? null : () => _test(push.id!),
+        ),
+        SettingsRow(
+          icon: LucideIcons.smartphone,
+          title: 'Push ID',
+          subtitle: push.id ?? 'Not assigned yet',
+          trailing: push.id == null ? null : Icon(LucideIcons.copy, size: 18, color: AppColors.inkFaint),
+          onTap: push.id == null
+              ? null
+              : () {
+                  Clipboard.setData(ClipboardData(text: push.id!));
+                  showToast(context, 'Push ID copied. Search for it in OneSignal, Audience.');
+                },
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusIcon extends StatelessWidget {
+  const _StatusIcon({required this.on, required this.healthy});
+  final bool on;
+  final bool healthy;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 22,
+    height: 22,
+    child: Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(on ? LucideIcons.bellRing : LucideIcons.bellOff, size: 22, color: AppColors.inkSoft),
+        Positioned(
+          right: -2,
+          top: -2,
+          child: AnimatedContainer(
+            duration: kDim,
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: healthy ? const Color(0xFF21A366) : (on ? AppColors.found : AppColors.damage),
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.ground, width: 1.5),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _CatchAll extends ConsumerStatefulWidget {

@@ -127,4 +127,6 @@ class ApiClient {
 
   Future<Map<String, dynamic>> setCatchAll(bool toWorker) =>
       _call(() => dio.put('/routing/catch-all', data: {'toWorker': toWorker}), (d) => Map<String, dynamic>.from(d));
+
+  Future<void> testPush(String subscriptionId) => _call(() => dio.post('/push/test', data: {'subscriptionId': subscriptionId}), (_) {});
 }
