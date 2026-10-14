@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "925027919475",
+    "project_id": "emailapp-2b5fc",
+    "storage_bucket": "emailapp-2b5fc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:925027919475:android:9101f967dc46acf9bbac06",
+        "android_client_info": {
+          "package_name": "ng.bridgewoodinvestment.bridgewood_mail"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyUuBWlRaNQFFGluIFey6Dg62I9jjJtzY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
