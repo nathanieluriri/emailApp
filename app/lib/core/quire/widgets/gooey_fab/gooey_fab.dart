@@ -41,9 +41,10 @@ class _GooeyFabState extends State<GooeyFab> with TickerProviderStateMixin {
 
   void _toggle() => _controller.toggle();
 
-  void _select(int index) {
+  Future<void> _select(int index) async {
     _toggle();
-    widget.onSelected?.call(index);
+    await Future<void>.delayed(const Duration(milliseconds: 420));
+    if (mounted) widget.onSelected?.call(index);
   }
 
   @override

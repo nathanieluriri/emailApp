@@ -145,12 +145,14 @@ class _BodyEditorState extends State<BodyEditor> {
 class RichEditor extends StatefulWidget {
   const RichEditor({
     super.key,
+    this.focusNode,
     required this.controller,
     this.toolbar = true,
     this.scrollable = true,
     this.placeholder = 'Compose email',
     this.padding,
   });
+  final FocusNode? focusNode;
   final QuillController controller;
   final bool toolbar;
   final bool scrollable;
@@ -162,12 +164,12 @@ class RichEditor extends StatefulWidget {
 }
 
 class _RichEditorState extends State<RichEditor> {
-  final _focus = FocusNode();
+  late final _focus = widget.focusNode ?? FocusNode();
   final _scroll = ScrollController();
 
   @override
   void dispose() {
-    _focus.dispose();
+    if (widget.focusNode == null) _focus.dispose();
     _scroll.dispose();
     super.dispose();
   }

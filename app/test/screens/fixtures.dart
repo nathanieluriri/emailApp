@@ -137,7 +137,7 @@ final thread = {
       140,
       read: true,
       attachment: true,
-      text: 'Hi Nathaniel,\n\nI have added comments to clauses 4 and 7. The rest reads well. Can we close this by Friday?\n\nBest,\nAdaeze',
+      text: 'Hi Nathaniel,\n\nI have added comments to clauses 4 and 7. The rest reads well. Can we close this by Friday?\n\nBest,\nAdaeze\n\nOn Tue, 13 Oct 2026, Bridgewood <admin@bridgewoodinvestment.ng> wrote:\n> Thanks, reviewing now.',
     ),
   ],
 };

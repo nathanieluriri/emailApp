@@ -1,6 +1,8 @@
 import 'package:bridgewood_mail/accounts/account.dart';
 import 'package:bridgewood_mail/accounts/accounts_controller.dart';
 import 'package:bridgewood_mail/app.dart';
+import 'package:bridgewood_mail/compose/compose_args.dart';
+import 'package:bridgewood_mail/mail/models.dart';
 import 'package:bridgewood_mail/core/api/api_client.dart';
 import 'package:bridgewood_mail/core/db/database.dart';
 import 'package:bridgewood_mail/core/providers.dart';
@@ -93,7 +95,11 @@ void main() {
       c.read(routerProvider).push('/thread/t3?hero=3');
       await settle(tester);
       await _shot(tester, 'thread_$mode');
-      await tester.tap(find.bySemanticsLabel('More'));
+      await tester.tap(find.text('to me'));
+      await tester.tap(find.text('Show quoted text'));
+      await settle(tester);
+      await _shot(tester, 'thread_details_$mode');
+      await tester.tap(find.bySemanticsLabel('More').first);
       await settle(tester);
       await _shot(tester, 'thread_menu_$mode');
     });
@@ -106,12 +112,38 @@ void main() {
       final quill = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
       quill.document.insert(0, 'Hi Adaeze,\n\nThanks for the comments. Clause 4 works for us; I will send the signed copy on Friday.');
       quill.formatText(0, 10, Attribute.bold);
-      await tester.tap(find.bySemanticsLabel('Formatting'));
+      await tester.tap(find.byType(QuillEditor));
       await settle(tester);
       await _shot(tester, 'compose_typing_$mode');
       await tester.tap(find.bySemanticsLabel('More'));
       await settle(tester);
       await _shot(tester, 'compose_menu_$mode');
+    });
+
+    testWidgets('reply $mode', (tester) async {
+      final c = await boot(tester, theme: theme);
+      final source = Message.fromJson((thread['messages']! as List)[2] as Map<String, dynamic>);
+      c
+          .read(routerProvider)
+          .push(
+            '/compose',
+            extra: ComposeArgs(kind: ComposeKind.replyAll, source: source),
+          );
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Show Cc and Bcc'));
+      await settle(tester);
+      await _shot(tester, 'reply_$mode');
+    });
+
+    testWidgets('sent folder opens threads after the drawer closes', (tester) async {
+      final c = await boot(tester, theme: theme);
+      await tester.tap(find.bySemanticsLabel('Menu'));
+      await settle(tester);
+      await tester.tap(find.text('Sent'));
+      await settle(tester);
+      await tester.tap(find.text('Tunde Bakare'));
+      await settle(tester);
+      expect(c.read(routerProvider).state.matchedLocation, startsWith('/thread/'));
     });
 
     testWidgets('settings $mode', (tester) async {
