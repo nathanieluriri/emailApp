@@ -8,6 +8,7 @@ import '../compose/compose_args.dart';
 import '../compose/compose_screen.dart';
 import '../compose/drafts_screen.dart';
 import '../mail/inbox_screen.dart';
+import '../mail/outbox_screen.dart';
 import '../mail/search_screen.dart';
 import '../mail/thread_screen.dart';
 import '../settings/account_screen.dart';
@@ -70,6 +71,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/search', pageBuilder: (_, s) => _fadePage(s, const SearchScreen())),
       GoRoute(path: '/drafts', pageBuilder: (_, s) => slidePage(s, const DraftsScreen())),
+      GoRoute(path: '/outbox', pageBuilder: (_, s) => slidePage(s, const OutboxScreen())),
       GoRoute(path: '/settings', pageBuilder: (_, s) => slidePage(s, const SettingsScreen())),
       GoRoute(
         path: '/settings/account/:id',

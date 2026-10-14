@@ -32,12 +32,33 @@ class Drafts extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [CachedLists, CachedThreads, Drafts])
+/// Mail waiting to be sent: the request body and how its attempts went. A row stays until the server has it.
+class OutboxItems extends Table {
+  TextColumn get id => text()();
+  TextColumn get accountId => text()();
+  TextColumn get json => text()();
+  IntColumn get createdAt => integer()();
+  IntColumn get sendAfter => integer()();
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+  TextColumn get error => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DriftDatabase(tables: [CachedLists, CachedThreads, Drafts, OutboxItems])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? driftDatabase(name: 'bridgewood_mail'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (m, from, to) async {
+      if (from < 2) await m.createTable(outboxItems);
+    },
+  );
 
   Future<String?> list(String accountId, String label) async =>
       (await (select(cachedLists)..where((t) => t.accountId.equals(accountId) & t.label.equals(label))).getSingleOrNull())?.json;
@@ -64,9 +85,16 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> deleteDraft(String id) => (delete(drafts)..where((t) => t.id.equals(id))).go();
 
+  Future<List<OutboxItem>> outbox() => (select(outboxItems)..orderBy([(t) => OrderingTerm.asc(t.createdAt)])).get();
+
+  Future<void> putOutbox(OutboxItemsCompanion item) => into(outboxItems).insertOnConflictUpdate(item);
+
+  Future<void> deleteOutbox(String id) => (delete(outboxItems)..where((t) => t.id.equals(id))).go();
+
   Future<void> forgetAccount(String accountId) => transaction(() async {
     await (delete(cachedLists)..where((t) => t.accountId.equals(accountId))).go();
     await (delete(cachedThreads)..where((t) => t.accountId.equals(accountId))).go();
     await (delete(drafts)..where((t) => t.accountId.equals(accountId))).go();
+    await (delete(outboxItems)..where((t) => t.accountId.equals(accountId))).go();
   });
 }

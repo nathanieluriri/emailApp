@@ -29,11 +29,13 @@ import '../notifications/push_card.dart';
 import '../notifications/push_service.dart';
 import '../templates/template.dart';
 import 'label_picker.dart';
+import 'live_sync.dart';
 import 'mail_providers.dart';
 import 'mail_repository.dart';
 import 'mail_row.dart';
 import 'models.dart';
 import 'nav_drawer.dart';
+import 'outbox.dart';
 
 const _bar = 56.0;
 
@@ -229,6 +231,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
                         ),
                       ),
                     ),
+                    const _SyncBanner(),
                     Expanded(
                       child: AnimatedSwitcher(
                         duration: kDeskWakingFade,
@@ -460,6 +463,66 @@ class _TipState extends ConsumerState<_Tip> {
             ),
           ),
   );
+}
+
+/// Says when the phone is offline and what is waiting in the outbox, as Gmail does under the list title.
+class _SyncBanner extends ConsumerWidget {
+  const _SyncBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final account = ref.watch(activeAccountProvider)?.id;
+    final mine = ref.watch(outboxProvider).where((q) => q.accountId == account);
+    final offline = ref.watch(liveSyncProvider) == LiveStatus.offline;
+    final refused = mine.where((q) => q.held).length;
+    final queued = mine.where((q) => !q.held && q.attempts > 0).length;
+    String count(int n) => n == 1 ? '1 message' : '$n messages';
+    final (IconData, String, Color)? line = refused > 0
+        ? (LucideIcons.mailWarning, '${count(refused)} not sent', AppColors.damage)
+        : queued > 0
+        ? (
+            LucideIcons.mailClock,
+            '${count(queued)} queued. ${offline ? 'Sends when you are back online.' : 'Trying again shortly.'}',
+            AppColors.inkSoft,
+          )
+        : offline
+        ? (LucideIcons.cloudOff, 'No connection. Showing saved mail.', AppColors.inkSoft)
+        : null;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 260),
+      curve: easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: line == null
+          ? const SizedBox(width: double.infinity)
+          : Container(
+              margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+              padding: EdgeInsets.fromLTRB(18, 6, refused + queued > 0 ? 6 : 18, 6),
+              constraints: const BoxConstraints(minHeight: 48),
+              decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
+              child: AnimatedSwitcher(
+                duration: kDim,
+                child: Row(
+                  key: ValueKey(line.$2),
+                  children: [
+                    Icon(line.$1, size: 20, color: line.$3),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(line.$2, style: AppText.bodyTight.copyWith(color: line.$3, fontSize: 14, height: 1.35)),
+                    ),
+                    if (refused + queued > 0)
+                      TextButton(
+                        onPressed: () {
+                          Feel.tap.ring();
+                          context.push('/outbox');
+                        },
+                        child: Text('View', style: AppText.actionPill.copyWith(color: AppColors.accentBright)),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
 }
 
 class _MailList extends ConsumerWidget {

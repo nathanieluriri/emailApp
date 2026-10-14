@@ -111,6 +111,13 @@ CREATE TABLE IF NOT EXISTS device_mailboxes (
 );
 CREATE INDEX IF NOT EXISTS idx_device_mailboxes_address ON device_mailboxes(address);
 
+-- Sends the app's outbox has made, so a retry of one that went through is not sent twice.
+CREATE TABLE IF NOT EXISTS sent_keys (
+  key TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+
 -- What a phone told the worker about itself: its clock, for reminding only in the daytime, and whether it wants reminders.
 CREATE TABLE IF NOT EXISTS devices (
   device_id TEXT PRIMARY KEY,

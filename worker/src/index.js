@@ -4,6 +4,8 @@ import { receive } from './inbound.js';
 import { remindUnread } from './push.js';
 import { routes } from './routes.js';
 
+export { MailboxHub } from './hub.js';
+
 function authorized(req, env) {
   const token = req.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   const keys = (env.API_KEYS || '').split(',').map((k) => k.trim()).filter(Boolean);

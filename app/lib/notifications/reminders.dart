@@ -7,22 +7,12 @@ import 'package:workmanager/workmanager.dart';
 
 import '../accounts/accounts_repository.dart';
 import '../core/api/api_client.dart';
+import '../core/background.dart';
 import '../mail/models.dart' show Message;
 import 'push_service.dart';
 
-@pragma('vm:entry-point')
-void reminderDispatcher() {
-  Workmanager().executeTask((task, data) async {
-    WidgetsFlutterBinding.ensureInitialized();
-    try {
-      await Reminders.check();
-    } catch (_) {}
-    return true;
-  });
-}
-
 abstract final class Reminders {
-  static const _task = 'unread-check';
+  static const task = 'unread-check';
   static const _lastCheckKey = 'reminder_last_check';
   static const _lastDailyKey = 'reminder_last_daily';
   static const dailyKey = PushService.remindKey;
@@ -70,11 +60,11 @@ abstract final class Reminders {
   );
 
   static Future<void> schedule(int minutes) async {
-    await Workmanager().initialize(reminderDispatcher);
-    if (minutes <= 0) return Workmanager().cancelByUniqueName(_task);
+    await ensureBackgroundWork();
+    if (minutes <= 0) return Workmanager().cancelByUniqueName(task);
     await Workmanager().registerPeriodicTask(
-      _task,
-      _task,
+      task,
+      task,
       frequency: Duration(minutes: minutes < 15 ? 15 : minutes),
       constraints: Constraints(networkType: NetworkType.connected),
       existingWorkPolicy: ExistingPeriodicWorkPolicy.update,

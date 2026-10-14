@@ -66,6 +66,10 @@ Each new mail notifies the phones registered for the mailbox that received it (`
 
 A cron trigger (every 30 minutes, free on Workers) pushes unread inbox mail again: an hour after it arrived, and once more a day later, never more than twice and only for mail from the last three days. Each mailbox gets one notification: a single conversation comes back as itself (with Archive, Mark as read and Reply), several come as a list of senders and subjects. Phones send their UTC offset with `PUT /devices/:deviceId`, so reminders wait for 8:00 to 21:00 on the phone's clock, and `remind: false` turns them off for that phone.
 
+### Live updates
+
+While the app is open it holds a WebSocket to `GET /live` (with `Authorization` and `X-Mailbox`), served by a `MailboxHub` Durable Object per mailbox. Every change to a mailbox (new mail, a send, a reaction, a read, archive or label change, a notification action) bumps the hub's version and sends `{"version": n}` down every socket, and a new socket gets the current version straight away, so the app refreshes only when something changed. Sockets use the hibernation API: an idle connection costs no duration, server messages and protocol pings are free, and each change costs one small request, well inside the free plan's 100,000 a day. `wrangler deploy` creates the SQLite-backed class from `migrations`.
+
 ## Mailboxes
 
 Every stored message records which addresses own it (`message_owners`): the delivered-to address and the To and Cc addresses of received mail, and the From address (plus the sending account) of sent mail. A request with an `X-Mailbox: <address>` header only sees that mailbox: Inbox is what it received, Sent is what it sent, and search, labels, counts and threads follow the same rule. Mail between two addresses on the domain is stored once when sent, and its delivery adds the recipient's copy. Requests without the header see everything, as before. Applying `schema.sql` again gives existing mail its owners.
@@ -93,7 +97,8 @@ All routes except `/health`, `/img/:key` and `/actions` need `Authorization: Bea
 | `PATCH /threads/:id` | `{read, starred, archived, add[], remove[]}` for the whole conversation; `starred: true` stars its newest message, `archived: false` puts received mail back in the inbox |
 | `POST /messages/:id/react` | `{emoji, fromName}`: sends a Gmail-style reaction, returns the message's `reactions` |
 | `POST /messages/:id/reply` | `{from, fromName, html, text, cc, bcc, attachments, replyAll}` |
-| `POST /send` | `{from, fromName, to[], cc[], bcc[], subject, html, text, attachments[{filename,type,content(base64)}], inReplyTo}` |
+| `POST /send` | `{from, fromName, to[], cc[], bcc[], subject, html, text, attachments[{filename,type,content(base64)}], inReplyTo, clientKey}`. A repeated `clientKey` (the app's outbox id) returns the first send instead of sending again; the same holds for `/messages/:id/reply` |
+| `GET /live` | WebSocket upgrade for live updates of the `X-Mailbox` mailbox; see Live updates |
 | `GET /attachments/:id` | raw file |
 | `GET/POST /labels`, `PATCH/DELETE /labels/:id` | system labels: inbox, sent, spam, trash |
 | `GET /senders` | from `SENDERS` var (local parts) or admin, info, support, noreply. With `X-Mailbox`, also `name`: what that address last sent as, or else what others last wrote to it as |

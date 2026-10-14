@@ -1,5 +1,6 @@
 import { fail, parseJson } from './http.js';
 import { notifyReaction } from './push.js';
+import { touch } from './live.js';
 
 // Gmail's reaction format: https://developers.google.com/workspace/gmail/reactions/format
 const REACTION_TYPE = 'text/vnd.google.email-reaction+json';
@@ -31,6 +32,7 @@ export async function receiveReaction(env, db, ctx, mail, delivered) {
     'INSERT OR IGNORE INTO reactions (message_id, address, name, emoji, created_at) VALUES (?, ?, ?, ?, ?)',
     target.id, address, name, emoji, Date.now(),
   );
+  touch(env, ctx, [delivered]);
   ctx.waitUntil(notifyReaction(env, db, target, delivered, name || address, emoji).catch((e) => console.error('push failed', e)));
   return true;
 }
@@ -69,7 +71,7 @@ export function reactionMime({ from, to, subject, messageId, inReplyTo, referenc
   ].join('\r\n');
 }
 
-export async function react({ env, db, req, params, mailbox: me }) {
+export async function react({ env, db, req, params, ctx, mailbox: me }) {
   const { emoji, fromName = '' } = await req.json().catch(() => ({}));
   if (!me) fail(400, 'X-Mailbox is required');
   if (!isEmoji(emoji)) fail(400, '"emoji" must be one emoji');
@@ -106,6 +108,7 @@ export async function react({ env, db, req, params, mailbox: me }) {
     'INSERT OR IGNORE INTO reactions (message_id, address, name, emoji, created_at) VALUES (?, ?, ?, ?, ?)',
     m.id, me, fromName, emoji.trim(), Date.now(),
   );
+  touch(env, ctx, [me]);
   const all = await db.all('SELECT * FROM reactions WHERE message_id = ? ORDER BY created_at', m.id);
   return { reactions: all.map((r) => ({ emoji: r.emoji, address: r.address, name: r.name || '', mine: r.address === me })) };
 }

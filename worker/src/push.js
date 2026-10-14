@@ -1,6 +1,7 @@
 import { fail } from './http.js';
 import { routeHere } from './routing.js';
 import { replyTo } from './send.js';
+import { touch } from './live.js';
 
 const QUIET_MS = 60_000;
 const EARLIER_LINES = 3;
@@ -307,5 +308,6 @@ export async function act({ env, db, req, params, ctx }) {
     );
   }
   await db.batch(stmts);
+  touch(env, ctx, [address]);
   return { ok: true };
 }

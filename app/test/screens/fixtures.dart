@@ -117,43 +117,46 @@ final thread = {
   'id': 't3',
   'subject': 'Re: Draft investment agreement',
   'messages': [
-    message(
-      '3a',
-      'Adaeze Okafor',
-      'adaeze@okaforlegal.ng',
-      'Draft investment agreement',
-      'Please find the draft attached.',
-      2900,
-      read: true,
-      text: 'Please find the draft attached.',
-    ),
-    message(
-      '3b',
-      'Bridgewood',
-      'admin@bridgewoodinvestment.ng',
-      'Re: Draft investment agreement',
-      'Thanks, reviewing now.',
-      1600,
-      read: true,
-      direction: 'out',
-      text: 'Thanks, reviewing now.',
-    ),
-    message(
-      '3c',
-      'Adaeze Okafor',
-      'adaeze@okaforlegal.ng',
-      'Re: Draft investment agreement',
-      'I have added comments to clauses 4 and 7',
-      140,
-      read: true,
-      attachment: true,
-      to: {'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri'},
-      reactions: [
-        {'emoji': '🎉', 'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri', 'mine': true},
-        {'emoji': '💖', 'address': 'info@bridgewoodinvestment.ng', 'name': 'Bridgewood Info'},
-      ],
-      text: 'Hi Nathaniel,\n\nI have added comments to clauses 4 and 7. The rest reads well. Can we close this by Friday?\n\nBest,\nAdaeze\n\nOn Tue, 13 Oct 2026, Bridgewood <admin@bridgewoodinvestment.ng> wrote:\n> Thanks, reviewing now.',
-    ),
+    for (final m in [
+      message(
+        '3a',
+        'Adaeze Okafor',
+        'adaeze@okaforlegal.ng',
+        'Draft investment agreement',
+        'Please find the draft attached.',
+        2900,
+        read: true,
+        text: 'Please find the draft attached.',
+      ),
+      message(
+        '3b',
+        'Bridgewood',
+        'admin@bridgewoodinvestment.ng',
+        'Re: Draft investment agreement',
+        'Thanks, reviewing now.',
+        1600,
+        read: true,
+        direction: 'out',
+        text: 'Thanks, reviewing now.',
+      ),
+      message(
+        '3c',
+        'Adaeze Okafor',
+        'adaeze@okaforlegal.ng',
+        'Re: Draft investment agreement',
+        'I have added comments to clauses 4 and 7',
+        140,
+        read: true,
+        attachment: true,
+        to: {'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri'},
+        reactions: [
+          {'emoji': '🎉', 'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri', 'mine': true},
+          {'emoji': '💖', 'address': 'info@bridgewoodinvestment.ng', 'name': 'Bridgewood Info'},
+        ],
+        text: 'Hi Nathaniel,\n\nI have added comments to clauses 4 and 7. The rest reads well. Can we close this by Friday?\n\nBest,\nAdaeze\n\nOn Tue, 13 Oct 2026, Bridgewood <admin@bridgewoodinvestment.ng> wrote:\n> Thanks, reviewing now.',
+      ),
+    ])
+      {...m, 'threadId': 't3'},
   ],
 };
 
@@ -182,9 +185,14 @@ final health = {
 };
 
 class FakeWorker implements HttpClientAdapter {
+  static var offline = false;
+  static final sent = <Map<String, dynamic>>[];
+
   @override
   Future<ResponseBody> fetch(RequestOptions options, Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    if (offline) throw DioException.connectionError(requestOptions: options, reason: 'offline');
     final path = options.uri.path;
+    if (path == '/send' || path.endsWith('/reply')) sent.add(Map<String, dynamic>.from(options.data as Map));
     final body = switch (path) {
       '/messages' => {'messages': inbox, 'nextCursor': null},
       '/labels' => labels,
