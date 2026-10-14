@@ -1,4 +1,5 @@
 import { fail, parseJson } from './http.js';
+import { touch } from './live.js';
 
 const PAGE = 50;
 const columns = (scoped) => `m.id, m.thread_id, ${scoped ? "CASE WHEN o.from_me THEN 'out' ELSE 'in' END" : 'm.direction'} AS direction,
@@ -159,7 +160,7 @@ export async function getThread({ db, params, mailbox }) {
   };
 }
 
-export async function patchMessage({ db, req, params, mailbox }) {
+export async function patchMessage({ env, ctx, db, req, params, mailbox }) {
   const b = await req.json();
   const id = params.id;
   if (!(await db.first('SELECT id FROM messages WHERE id = ?', id))) fail(404, 'message not found');
@@ -175,11 +176,12 @@ export async function patchMessage({ db, req, params, mailbox }) {
   if (b.archived === true) stmts.push(["DELETE FROM message_labels WHERE message_id = ? AND label_id = 'inbox'", id]);
   if (b.archived === false) stmts.push(["INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?, 'inbox')", id]);
   if (stmts.length) await db.batch(stmts);
+  touch(env, ctx, [mailbox]);
   return getMessage({ db, params, mailbox });
 }
 
 // Applies a change to every message of a conversation the mailbox can see, the way list rows act in Gmail.
-export async function patchThread({ db, req, params, mailbox }) {
+export async function patchThread({ env, ctx, db, req, params, mailbox }) {
   const b = await req.json();
   const t = params.id;
   const mine = (col) => (mailbox ? ` AND ${col} IN (SELECT message_id FROM message_owners WHERE address = ?)` : '');
@@ -214,6 +216,7 @@ export async function patchThread({ db, req, params, mailbox }) {
     stmts.push([`DELETE FROM message_labels WHERE label_id = ? AND message_id IN (${ids})`, l, t, ...who]);
   }
   if (stmts.length) await db.batch(stmts);
+  touch(env, ctx, [mailbox]);
   return { ok: true };
 }
 

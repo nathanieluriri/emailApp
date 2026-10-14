@@ -13,6 +13,9 @@ import 'core/providers.dart';
 import 'core/quire/theme/colors.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
+import 'core/widgets.dart';
+import 'mail/live_sync.dart';
+import 'mail/outbox.dart';
 import 'notifications/push_service.dart';
 import 'notifications/reminders.dart';
 
@@ -36,6 +39,30 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     final pending = PushService.pendingOpen ?? (Reminders.launchHost == null ? null : PushEvent(host: Reminders.launchHost, opened: true));
     PushService.pendingOpen = null;
     if (pending != null) ref.read(accountsProvider.future).then((_) => _openPush(pending));
+    // The connection coming back is the moment to send what waited in the outbox.
+    ref.listenManual(liveSyncProvider, (was, now) {
+      if (now == LiveStatus.live && was != LiveStatus.live) ref.read(outboxProvider.notifier).flush(waiting: true);
+    });
+    _subs.add(ref.read(outboxProvider.notifier).events.stream.listen(_onOutbox));
+  }
+
+  void _onOutbox(OutboxEvent e) {
+    final router = ref.read(routerProvider);
+    final context = router.routerDelegate.navigatorKey.currentContext;
+    if (context == null) return;
+    switch (e.news) {
+      case OutboxNews.sent:
+        showToast(context, 'Sent');
+      case OutboxNews.waiting:
+        showToast(
+          context,
+          'No connection. It will send when you are back online.',
+          action: 'Outbox',
+          onAction: () => router.push('/outbox'),
+        );
+      case OutboxNews.refused:
+        showToast(context, 'Not sent: ${e.item.error}', action: 'Outbox', onAction: () => router.push('/outbox'));
+    }
   }
 
   @override
@@ -53,7 +80,18 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final active = ref.read(accountsProvider).value?.active;
-    if (state == AppLifecycleState.resumed && active != null) PushService.clearFor(active.email);
+    final live = ref.read(liveSyncProvider.notifier);
+    switch (state) {
+      case AppLifecycleState.resumed:
+        if (active != null) PushService.clearFor(active.email);
+        live.resume();
+        ref.read(outboxProvider.notifier).flush(waiting: true);
+      case AppLifecycleState.paused || AppLifecycleState.hidden:
+        live.pause();
+        if (ref.read(outboxProvider).isNotEmpty) sendOutboxWhenOnline();
+      default:
+        break;
+    }
   }
 
   Future<void> _openPush(PushEvent e) async {
@@ -70,7 +108,10 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     if (e.action != PushAction.reply || e.messageId == null) return;
     try {
       final message = await ref.read(apiProvider).message(e.messageId!);
-      router.push('/compose', extra: ComposeArgs(kind: ComposeKind.reply, source: message, text: e.text));
+      router.push(
+        '/compose',
+        extra: ComposeArgs(kind: ComposeKind.reply, source: message, text: e.text),
+      );
     } catch (_) {}
   }
 

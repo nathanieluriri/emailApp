@@ -20,6 +20,8 @@ import 'label_picker.dart';
 import 'mail_providers.dart';
 import 'mail_repository.dart';
 import 'models.dart';
+import 'outbox.dart';
+import 'outbox_screen.dart';
 import 'quote.dart';
 import 'reaction_widgets.dart';
 import 'reactions.dart';
@@ -36,11 +38,18 @@ class ThreadScreen extends ConsumerStatefulWidget {
 class _ThreadScreenState extends ConsumerState<ThreadScreen> {
   final _expanded = <String>{};
   final _markedRead = <String>{};
+  final _scroll = ScrollController();
 
   @override
   void initState() {
     super.initState();
     precacheReactionEmoji();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
   }
 
   void _markRead(MailThread t) {
@@ -98,10 +107,19 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
     }).ignore();
   }
 
-  void _compose(ComposeKind kind, Message m) => context.push(
-    '/compose',
-    extra: ComposeArgs(kind: kind, source: m),
-  );
+  /// Opens the composer, and on the way back shows a reply that went to the outbox, as Gmail scrolls to what you sent.
+  Future<void> _compose(ComposeKind kind, Message m) async {
+    await context.push(
+      '/compose',
+      extra: ComposeArgs(kind: kind, source: m),
+    );
+    if (!mounted || !ref.read(outboxProvider).any((q) => q.threadId == widget.threadId)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 420), curve: Curves.easeOutCubic);
+      }
+    });
+  }
 
   Future<void> _menu(BuildContext anchor, MailThread t) async {
     final api = ref.read(mailRepositoryProvider).api;
@@ -234,8 +252,11 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
     final labels = {for (final l in ref.watch(labelsProvider).value ?? <MailLabel>[]) l.id: l.name};
     final api = ref.read(mailRepositoryProvider).api;
     final pending = ref.watch(pendingReactionsProvider);
+    final account = ref.watch(activeAccountProvider)?.id;
+    final queued = ref.watch(outboxProvider).where((q) => q.threadId == t.id && q.accountId == account);
     final starred = t.messages.any((m) => m.starred);
     return ListView(
+      controller: _scroll,
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         Padding(
@@ -314,6 +335,7 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
               },
             ),
           ),
+        for (final q in queued) QueuedCard(key: ValueKey(q.id), item: q),
       ],
     );
   }

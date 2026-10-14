@@ -8,10 +8,13 @@ import { timingSafeEqual } from 'node:crypto';
 import PostalMime from 'postal-mime';
 
 register(`data:text/javascript,${encodeURIComponent(`
+  const stubs = {
+    'cloudflare:email': 'export class EmailMessage { constructor(from, to, raw) { Object.assign(this, { from, to, raw }); } }',
+    'cloudflare:workers': 'export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }',
+  };
   export async function resolve(specifier, context, next) {
-    if (specifier !== 'cloudflare:email') return next(specifier, context);
-    const stub = 'export class EmailMessage { constructor(from, to, raw) { Object.assign(this, { from, to, raw }); } }';
-    return { url: 'data:text/javascript,' + encodeURIComponent(stub), shortCircuit: true };
+    if (!(specifier in stubs)) return next(specifier, context);
+    return { url: 'data:text/javascript,' + encodeURIComponent(stubs[specifier]), shortCircuit: true };
   }`)}`);
 
 const { default: worker } = await import('../src/index.js');
@@ -313,4 +316,32 @@ test('the server tells the app the name an address goes by', async () => {
   const name = async (mailbox) => (await senders({ env, db, ctx, url: new URL('https://w.dev/senders'), mailbox })).name;
   await arrive('yemi@bw.ng', { from: 'Tola <tola@x.com>', to: 'Yemi Ade <yemi@bw.ng>', subject: 'Welcome', body: 'Hi Yemi' });
   assert.deepEqual([await name('amy@bw.ng'), await name('yemi@bw.ng'), await name('kemi@bw.ng')], ['Amy', 'Yemi Ade', '']);
+});
+
+test('every change pokes the live hub of each mailbox it touches, and an outbox retry is not sent twice', async () => {
+  const touched = [];
+  env.HUB = { idFromName: (name) => name, get: (id) => ({ changed: async () => touched.push(id) }) };
+  const mails = [];
+  const original = env.EMAIL.send;
+  env.EMAIL.send = async (m) => {
+    mails.push(m);
+    return { messageId: `<${crypto.randomUUID()}@bw.ng>` };
+  };
+  try {
+    await arrive('pat@bw.ng', { from: 'Ola <ola@x.com>', to: 'pat@bw.ng', cc: 'kim@bw.ng', subject: 'Hello', body: 'Hi Pat' });
+    assert.deepEqual(touched.splice(0).sort(), ['kim@bw.ng', 'pat@bw.ng']);
+
+    const [row] = await rows('pat@bw.ng');
+    await patchThread({ env, ctx, db, mailbox: 'pat@bw.ng', req: req({ read: true }), params: { id: row.threadId } });
+    assert.deepEqual(touched.splice(0), ['pat@bw.ng']);
+
+    const body = { from: 'pat@bw.ng', fromName: 'Pat', to: ['ola@x.com'], subject: 'Re: Hello', text: 'Thanks', clientKey: 'outbox-1' };
+    const first = await send({ env, db, ctx, mailbox: 'pat@bw.ng', req: req(body) });
+    const again = await send({ env, db, ctx, mailbox: 'pat@bw.ng', req: req(body) });
+    assert.deepEqual([mails.length, again.id, again.duplicate], [1, first.id, true]);
+    assert.deepEqual(touched.splice(0), ['pat@bw.ng']);
+  } finally {
+    env.EMAIL.send = original;
+    delete env.HUB;
+  }
 });

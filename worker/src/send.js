@@ -2,6 +2,7 @@ import { fail, parseJson } from './http.js';
 import { storeMessage } from './store.js';
 import { htmlToText } from './text.js';
 import { routeHere } from './routing.js';
+import { touch } from './live.js';
 
 const DEFAULT_SENDERS = ['admin', 'info', 'support', 'noreply'];
 
@@ -51,6 +52,16 @@ async function deliver(env, db, b, mailbox, ctx) {
   if (!to.length) fail(400, '"to" needs at least one recipient');
   if (to.length + cc.length + bcc.length > 50) fail(400, 'at most 50 recipients');
   if (!b.html && !b.text) fail(400, '"html" or "text" is required');
+
+  // The app's outbox retries a send until it hears back, so a retry of one that went through returns it again.
+  const key = typeof b.clientKey === 'string' && b.clientKey.trim() ? b.clientKey.trim().slice(0, 100) : null;
+  const seen =
+    key &&
+    (await db.first(
+      'SELECT m.id, m.thread_id, m.message_id_header FROM sent_keys k JOIN messages m ON m.id = k.message_id WHERE k.key = ?',
+      key,
+    ));
+  if (seen) return { id: seen.id, threadId: seen.thread_id, messageIdHeader: seen.message_id_header, duplicate: true };
 
   const text = b.text || htmlToText(b.html);
   const headers = {};
@@ -106,6 +117,8 @@ async function deliver(env, db, b, mailbox, ctx) {
     owners: [...new Set([from, mailbox].filter(Boolean))].map((address) => ({ address, role: 'from' })),
     attachments,
   });
+  if (key) await db.run('INSERT OR IGNORE INTO sent_keys (key, message_id, created_at) VALUES (?, ?, ?)', key, stored.id, Date.now());
+  touch(env, ctx, [from, mailbox]);
   ctx?.waitUntil(routeHere(env, db, [from, mailbox].filter(Boolean)).catch((e) => console.error('routing failed', e)));
   return { ...stored, messageIdHeader };
 }

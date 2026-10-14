@@ -726,16 +726,404 @@ class DraftsCompanion extends UpdateCompanion<Draft> {
   }
 }
 
+class $OutboxItemsTable extends OutboxItems with TableInfo<$OutboxItemsTable, OutboxItem> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $OutboxItemsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _accountIdMeta = const VerificationMeta('accountId');
+  @override
+  late final GeneratedColumn<String> accountId = GeneratedColumn<String>(
+    'account_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _jsonMeta = const VerificationMeta('json');
+  @override
+  late final GeneratedColumn<String> json = GeneratedColumn<String>(
+    'json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sendAfterMeta = const VerificationMeta('sendAfter');
+  @override
+  late final GeneratedColumn<int> sendAfter = GeneratedColumn<int>(
+    'send_after',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta('attempts');
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _errorMeta = const VerificationMeta('error');
+  @override
+  late final GeneratedColumn<String> error = GeneratedColumn<String>(
+    'error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, accountId, json, createdAt, sendAfter, attempts, error];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'outbox_items';
+  @override
+  VerificationContext validateIntegrity(Insertable<OutboxItem> instance, {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('account_id')) {
+      context.handle(_accountIdMeta, accountId.isAcceptableOrUnknown(data['account_id']!, _accountIdMeta));
+    } else if (isInserting) {
+      context.missing(_accountIdMeta);
+    }
+    if (data.containsKey('json')) {
+      context.handle(_jsonMeta, json.isAcceptableOrUnknown(data['json']!, _jsonMeta));
+    } else if (isInserting) {
+      context.missing(_jsonMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta, createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('send_after')) {
+      context.handle(_sendAfterMeta, sendAfter.isAcceptableOrUnknown(data['send_after']!, _sendAfterMeta));
+    } else if (isInserting) {
+      context.missing(_sendAfterMeta);
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(_attemptsMeta, attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta));
+    }
+    if (data.containsKey('error')) {
+      context.handle(_errorMeta, error.isAcceptableOrUnknown(data['error']!, _errorMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  OutboxItem map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return OutboxItem(
+      id: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      accountId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}account_id'])!,
+      json: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}json'])!,
+      createdAt: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}created_at'])!,
+      sendAfter: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}send_after'])!,
+      attempts: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}attempts'])!,
+      error: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}error']),
+    );
+  }
+
+  @override
+  $OutboxItemsTable createAlias(String alias) {
+    return $OutboxItemsTable(attachedDatabase, alias);
+  }
+}
+
+class OutboxItem extends DataClass implements Insertable<OutboxItem> {
+  final String id;
+  final String accountId;
+  final String json;
+  final int createdAt;
+  final int sendAfter;
+  final int attempts;
+  final String? error;
+  const OutboxItem({
+    required this.id,
+    required this.accountId,
+    required this.json,
+    required this.createdAt,
+    required this.sendAfter,
+    required this.attempts,
+    this.error,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['account_id'] = Variable<String>(accountId);
+    map['json'] = Variable<String>(json);
+    map['created_at'] = Variable<int>(createdAt);
+    map['send_after'] = Variable<int>(sendAfter);
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || error != null) {
+      map['error'] = Variable<String>(error);
+    }
+    return map;
+  }
+
+  OutboxItemsCompanion toCompanion(bool nullToAbsent) {
+    return OutboxItemsCompanion(
+      id: Value(id),
+      accountId: Value(accountId),
+      json: Value(json),
+      createdAt: Value(createdAt),
+      sendAfter: Value(sendAfter),
+      attempts: Value(attempts),
+      error: error == null && nullToAbsent ? const Value.absent() : Value(error),
+    );
+  }
+
+  factory OutboxItem.fromJson(Map<String, dynamic> json, {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return OutboxItem(
+      id: serializer.fromJson<String>(json['id']),
+      accountId: serializer.fromJson<String>(json['accountId']),
+      json: serializer.fromJson<String>(json['json']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      sendAfter: serializer.fromJson<int>(json['sendAfter']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      error: serializer.fromJson<String?>(json['error']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'accountId': serializer.toJson<String>(accountId),
+      'json': serializer.toJson<String>(json),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'sendAfter': serializer.toJson<int>(sendAfter),
+      'attempts': serializer.toJson<int>(attempts),
+      'error': serializer.toJson<String?>(error),
+    };
+  }
+
+  OutboxItem copyWith({
+    String? id,
+    String? accountId,
+    String? json,
+    int? createdAt,
+    int? sendAfter,
+    int? attempts,
+    Value<String?> error = const Value.absent(),
+  }) => OutboxItem(
+    id: id ?? this.id,
+    accountId: accountId ?? this.accountId,
+    json: json ?? this.json,
+    createdAt: createdAt ?? this.createdAt,
+    sendAfter: sendAfter ?? this.sendAfter,
+    attempts: attempts ?? this.attempts,
+    error: error.present ? error.value : this.error,
+  );
+  OutboxItem copyWithCompanion(OutboxItemsCompanion data) {
+    return OutboxItem(
+      id: data.id.present ? data.id.value : this.id,
+      accountId: data.accountId.present ? data.accountId.value : this.accountId,
+      json: data.json.present ? data.json.value : this.json,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      sendAfter: data.sendAfter.present ? data.sendAfter.value : this.sendAfter,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      error: data.error.present ? data.error.value : this.error,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxItem(')
+          ..write('id: $id, ')
+          ..write('accountId: $accountId, ')
+          ..write('json: $json, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('sendAfter: $sendAfter, ')
+          ..write('attempts: $attempts, ')
+          ..write('error: $error')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, accountId, json, createdAt, sendAfter, attempts, error);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is OutboxItem &&
+          other.id == this.id &&
+          other.accountId == this.accountId &&
+          other.json == this.json &&
+          other.createdAt == this.createdAt &&
+          other.sendAfter == this.sendAfter &&
+          other.attempts == this.attempts &&
+          other.error == this.error);
+}
+
+class OutboxItemsCompanion extends UpdateCompanion<OutboxItem> {
+  final Value<String> id;
+  final Value<String> accountId;
+  final Value<String> json;
+  final Value<int> createdAt;
+  final Value<int> sendAfter;
+  final Value<int> attempts;
+  final Value<String?> error;
+  final Value<int> rowid;
+  const OutboxItemsCompanion({
+    this.id = const Value.absent(),
+    this.accountId = const Value.absent(),
+    this.json = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.sendAfter = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.error = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  OutboxItemsCompanion.insert({
+    required String id,
+    required String accountId,
+    required String json,
+    required int createdAt,
+    required int sendAfter,
+    this.attempts = const Value.absent(),
+    this.error = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       accountId = Value(accountId),
+       json = Value(json),
+       createdAt = Value(createdAt),
+       sendAfter = Value(sendAfter);
+  static Insertable<OutboxItem> custom({
+    Expression<String>? id,
+    Expression<String>? accountId,
+    Expression<String>? json,
+    Expression<int>? createdAt,
+    Expression<int>? sendAfter,
+    Expression<int>? attempts,
+    Expression<String>? error,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (accountId != null) 'account_id': accountId,
+      if (json != null) 'json': json,
+      if (createdAt != null) 'created_at': createdAt,
+      if (sendAfter != null) 'send_after': sendAfter,
+      if (attempts != null) 'attempts': attempts,
+      if (error != null) 'error': error,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  OutboxItemsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? accountId,
+    Value<String>? json,
+    Value<int>? createdAt,
+    Value<int>? sendAfter,
+    Value<int>? attempts,
+    Value<String?>? error,
+    Value<int>? rowid,
+  }) {
+    return OutboxItemsCompanion(
+      id: id ?? this.id,
+      accountId: accountId ?? this.accountId,
+      json: json ?? this.json,
+      createdAt: createdAt ?? this.createdAt,
+      sendAfter: sendAfter ?? this.sendAfter,
+      attempts: attempts ?? this.attempts,
+      error: error ?? this.error,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (accountId.present) {
+      map['account_id'] = Variable<String>(accountId.value);
+    }
+    if (json.present) {
+      map['json'] = Variable<String>(json.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (sendAfter.present) {
+      map['send_after'] = Variable<int>(sendAfter.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (error.present) {
+      map['error'] = Variable<String>(error.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxItemsCompanion(')
+          ..write('id: $id, ')
+          ..write('accountId: $accountId, ')
+          ..write('json: $json, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('sendAfter: $sendAfter, ')
+          ..write('attempts: $attempts, ')
+          ..write('error: $error, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $CachedListsTable cachedLists = $CachedListsTable(this);
   late final $CachedThreadsTable cachedThreads = $CachedThreadsTable(this);
   late final $DraftsTable drafts = $DraftsTable(this);
+  late final $OutboxItemsTable outboxItems = $OutboxItemsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables => allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [cachedLists, cachedThreads, drafts];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [cachedLists, cachedThreads, drafts, outboxItems];
 }
 
 typedef $$CachedListsTableCreateCompanionBuilder = CachedListsCompanion Function({
@@ -1113,6 +1501,186 @@ typedef $$DraftsTableProcessedTableManager =
       Draft,
       PrefetchHooks Function()
     >;
+typedef $$OutboxItemsTableCreateCompanionBuilder = OutboxItemsCompanion Function({
+  required String id,
+  required String accountId,
+  required String json,
+  required int createdAt,
+  required int sendAfter,
+  Value<int> attempts,
+  Value<String?> error,
+  Value<int> rowid,
+});
+typedef $$OutboxItemsTableUpdateCompanionBuilder = OutboxItemsCompanion Function({
+  Value<String> id,
+  Value<String> accountId,
+  Value<String> json,
+  Value<int> createdAt,
+  Value<int> sendAfter,
+  Value<int> attempts,
+  Value<String?> error,
+  Value<int> rowid,
+});
+
+class $$OutboxItemsTableFilterComposer extends Composer<_$AppDatabase, $OutboxItemsTable> {
+  $$OutboxItemsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get accountId => $composableBuilder(column: $table.accountId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get json => $composableBuilder(column: $table.json, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAt => $composableBuilder(column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get sendAfter => $composableBuilder(column: $table.sendAfter, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get attempts => $composableBuilder(column: $table.attempts, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get error => $composableBuilder(column: $table.error, builder: (column) => ColumnFilters(column));
+}
+
+class $$OutboxItemsTableOrderingComposer extends Composer<_$AppDatabase, $OutboxItemsTable> {
+  $$OutboxItemsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get accountId => $composableBuilder(column: $table.accountId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get json => $composableBuilder(column: $table.json, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get sendAfter => $composableBuilder(column: $table.sendAfter, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get attempts => $composableBuilder(column: $table.attempts, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get error => $composableBuilder(column: $table.error, builder: (column) => ColumnOrderings(column));
+}
+
+class $$OutboxItemsTableAnnotationComposer extends Composer<_$AppDatabase, $OutboxItemsTable> {
+  $$OutboxItemsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id => $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get accountId => $composableBuilder(column: $table.accountId, builder: (column) => column);
+
+  GeneratedColumn<String> get json => $composableBuilder(column: $table.json, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt => $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get sendAfter => $composableBuilder(column: $table.sendAfter, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts => $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<String> get error => $composableBuilder(column: $table.error, builder: (column) => column);
+}
+
+class $$OutboxItemsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $OutboxItemsTable,
+          OutboxItem,
+          $$OutboxItemsTableFilterComposer,
+          $$OutboxItemsTableOrderingComposer,
+          $$OutboxItemsTableAnnotationComposer,
+          $$OutboxItemsTableCreateCompanionBuilder,
+          $$OutboxItemsTableUpdateCompanionBuilder,
+          (OutboxItem, BaseReferences<_$AppDatabase, $OutboxItemsTable, OutboxItem>),
+          OutboxItem,
+          PrefetchHooks Function()
+        > {
+  $$OutboxItemsTableTableManager(_$AppDatabase db, $OutboxItemsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () => $$OutboxItemsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () => $$OutboxItemsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () => $$OutboxItemsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> accountId = const Value.absent(),
+                Value<String> json = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> sendAfter = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<String?> error = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxItemsCompanion(
+                id: id,
+                accountId: accountId,
+                json: json,
+                createdAt: createdAt,
+                sendAfter: sendAfter,
+                attempts: attempts,
+                error: error,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String accountId,
+                required String json,
+                required int createdAt,
+                required int sendAfter,
+                Value<int> attempts = const Value.absent(),
+                Value<String?> error = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxItemsCompanion.insert(
+                id: id,
+                accountId: accountId,
+                json: json,
+                createdAt: createdAt,
+                sendAfter: sendAfter,
+                attempts: attempts,
+                error: error,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$OutboxItemsTable, OutboxItem>(table),
+                  BaseReferences<_$AppDatabase, $OutboxItemsTable, OutboxItem>(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$OutboxItemsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $OutboxItemsTable,
+      OutboxItem,
+      $$OutboxItemsTableFilterComposer,
+      $$OutboxItemsTableOrderingComposer,
+      $$OutboxItemsTableAnnotationComposer,
+      $$OutboxItemsTableCreateCompanionBuilder,
+      $$OutboxItemsTableUpdateCompanionBuilder,
+      (OutboxItem, BaseReferences<_$AppDatabase, $OutboxItemsTable, OutboxItem>),
+      OutboxItem,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1120,4 +1688,5 @@ class $AppDatabaseManager {
   $$CachedListsTableTableManager get cachedLists => $$CachedListsTableTableManager(_db, _db.cachedLists);
   $$CachedThreadsTableTableManager get cachedThreads => $$CachedThreadsTableTableManager(_db, _db.cachedThreads);
   $$DraftsTableTableManager get drafts => $$DraftsTableTableManager(_db, _db.drafts);
+  $$OutboxItemsTableTableManager get outboxItems => $$OutboxItemsTableTableManager(_db, _db.outboxItems);
 }

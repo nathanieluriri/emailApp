@@ -3,7 +3,9 @@ import 'package:bridgewood_mail/accounts/accounts_controller.dart';
 import 'package:bridgewood_mail/accounts/health_check.dart';
 import 'package:bridgewood_mail/app.dart';
 import 'package:bridgewood_mail/compose/compose_args.dart';
+import 'package:bridgewood_mail/mail/live_sync.dart';
 import 'package:bridgewood_mail/mail/models.dart';
+import 'package:bridgewood_mail/mail/outbox.dart';
 import 'package:bridgewood_mail/core/api/api_client.dart';
 import 'package:bridgewood_mail/core/db/database.dart';
 import 'package:bridgewood_mail/core/providers.dart';
@@ -51,6 +53,19 @@ class _Push extends PushStatusController {
   PushStatus build() => status;
 }
 
+class _Live extends LiveSync {
+  @override
+  LiveStatus build() => LiveStatus.live;
+
+  @override
+  void pause() {}
+
+  @override
+  void resume() {}
+
+  void set(LiveStatus status) => state = status;
+}
+
 class _Accounts extends AccountsController {
   _Accounts(this.accounts);
   final List<Account> accounts;
@@ -79,6 +94,7 @@ Future<ProviderContainer> boot(
       pushStatusProvider.overrideWith(() => _Push(push)),
       apiProvider.overrideWith((ref) => ApiClient('https://w.test', 'k')..dio.httpClientAdapter = FakeWorker()),
       serverDomainProvider.overrideWith((ref, url) async => 'bridgewoodinvestment.ng'),
+      liveSyncProvider.overrideWith(_Live.new),
     ],
   );
   addTearDown(container.dispose);
@@ -191,6 +207,46 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Show Cc and Bcc'));
       await settle(tester);
       await _shot(tester, 'reply_$mode');
+    });
+
+    testWidgets('outbox $mode', (tester) async {
+      final c = await boot(tester, theme: theme);
+      final router = c.read(routerProvider);
+      final live = c.read(liveSyncProvider.notifier) as _Live;
+      FakeWorker.sent.clear();
+      addTearDown(() => FakeWorker.offline = false);
+      router.push('/thread/t3?hero=3');
+      await settle(tester);
+      FakeWorker.offline = true;
+      live.set(LiveStatus.offline);
+      await tester.tap(find.bySemanticsLabel('Reply').first);
+      await settle(tester);
+      tester.widget<QuillEditor>(find.byType(QuillEditor)).controller.document.insert(0, 'Signed copy attached. See you on Friday.');
+      await tester.tap(find.bySemanticsLabel('Send'));
+      await settle(tester);
+      expect(find.text('Sending…'), findsWidgets);
+      await tester.pump(outboxHold);
+      await settle(tester);
+      expect(find.text('Queued'), findsOneWidget);
+      await _shot(tester, 'thread_queued_$mode');
+      router.pop();
+      await tester.pump(const Duration(seconds: 5));
+      await settle(tester);
+      expect(find.text('1 message queued. Sends when you are back online.'), findsOneWidget);
+      await _shot(tester, 'inbox_offline_$mode');
+      await tester.tap(find.bySemanticsLabel('Menu'));
+      await settle(tester);
+      await tester.tap(find.text('Outbox'));
+      await settle(tester);
+      await _shot(tester, 'outbox_$mode');
+      FakeWorker.offline = false;
+      live.set(LiveStatus.live);
+      await settle(tester);
+      expect(c.read(outboxProvider), isEmpty);
+      expect(FakeWorker.sent.single['clientKey'], isNotEmpty);
+      expect(find.text('Nothing waiting'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+      await settle(tester);
     });
 
     testWidgets('sent folder opens threads after the drawer closes', (tester) async {

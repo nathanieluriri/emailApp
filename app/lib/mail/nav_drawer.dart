@@ -11,6 +11,7 @@ import '../core/quire/widgets/digit_roll.dart';
 import '../core/quire/widgets/press_fade.dart';
 import '../core/widgets.dart';
 import 'mail_providers.dart';
+import 'outbox.dart';
 import '../compose/drafts_screen.dart';
 
 const _icons = {
@@ -70,6 +71,7 @@ class NavDrawer extends ConsumerWidget {
 
     final accounts = ref.watch(accountsProvider).value;
     final active = accounts?.active;
+    final queued = ref.watch(outboxProvider).where((q) => q.accountId == active?.id).length;
     return ColoredBox(
       color: AppColors.surface,
       child: SafeArea(
@@ -139,6 +141,7 @@ class NavDrawer extends ConsumerWidget {
                   ),
                   for (final e in systemLabels.entries)
                     row(e.key, e.value, _icons[e.key]!, count: e.key == 'inbox' || e.key == 'spam' ? unread[e.key] ?? 0 : 0),
+                  if (queued > 0) row('/outbox', 'Outbox', LucideIcons.mailClock, count: queued, onTap: () => onLink('/outbox')),
                   row(
                     '/drafts',
                     'Drafts',

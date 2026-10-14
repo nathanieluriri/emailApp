@@ -7,6 +7,7 @@ import { health } from './health.js';
 import { getCatchAll, setCatchAll } from './routing.js';
 import { act, registerDevice, testPush } from './push.js';
 import { react } from './reactions.js';
+import { live } from './live.js';
 
 const route = (method, path, handler, isPublic = false) => ({
   method,
@@ -32,6 +33,7 @@ export const routes = [
   route('PATCH', '/messages/:id', mail.patchMessage),
   route('POST', '/messages/:id/reply', reply),
   route('POST', '/messages/:id/react', react),
+  route('GET', '/live', live),
   route('GET', '/threads/:id', mail.getThread),
   route('PATCH', '/threads/:id', mail.patchThread),
   route('GET', '/attachments/:id', mail.getAttachment),

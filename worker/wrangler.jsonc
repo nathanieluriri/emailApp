@@ -10,6 +10,8 @@
     { "binding": "DB", "database_name": "bridgewood-mail", "database_id": "24734dcb-36ee-4cfc-b11f-5c44cd295471" }
   ],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "bridgewood-mail" }],
+  "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "MailboxHub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }],
   "vars": {
     "ALLOWED_DOMAIN": "bridgewoodinvestment.ng",
     "PUBLIC_HOST": "bridgewood-mail.uririnathaniel.workers.dev",

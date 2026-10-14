@@ -3,6 +3,7 @@ import { createDb } from './db.js';
 import { storeMessage } from './store.js';
 import { notifyNewMail } from './push.js';
 import { receiveReaction } from './reactions.js';
+import { touch } from './live.js';
 
 const addresses = (list) => (list || []).filter((a) => a.address).map((a) => ({ address: a.address, name: a.name || '' }));
 
@@ -52,5 +53,6 @@ export async function receive(message, env, ctx) {
       ]);
     }
   }
+  touch(env, ctx, notify);
   if (notify.length) ctx.waitUntil(notifyNewMail(env, db, stored.id, notify).catch((e) => console.error('push failed', e)));
 }

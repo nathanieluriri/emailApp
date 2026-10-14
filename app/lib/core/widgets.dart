@@ -204,12 +204,25 @@ class Avatar extends StatelessWidget {
 }
 
 /// Quire's toast: a pill that rises, with a bar draining under it while it stays.
+OverlayEntry? _toast;
+
+/// One toast at a time, as Gmail does: a new one replaces the last, so "Sending" turns into "Sent".
 void showToast(BuildContext context, String message, {String? action, VoidCallback? onAction}) {
-  final overlay = Overlay.of(context, rootOverlay: true);
+  // Navigator.of also accepts the navigator's own context, which is how app-level news reaches a toast.
+  final overlay = Navigator.of(context, rootNavigator: true).overlay!;
+  if (_toast?.mounted ?? false) _toast!.remove();
   late OverlayEntry entry;
   entry = OverlayEntry(
-    builder: (_) => _Toast(message: message, action: action, onAction: onAction, onDone: () => entry.remove()),
+    builder: (_) => _Toast(
+      message: message,
+      action: action,
+      onAction: onAction,
+      onDone: () {
+        if (entry.mounted) entry.remove();
+      },
+    ),
   );
+  _toast = entry;
   overlay.insert(entry);
 }
 

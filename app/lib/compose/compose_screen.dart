@@ -21,8 +21,8 @@ import '../core/quire/widgets/quire_spinner.dart';
 import '../core/widgets.dart';
 import '../mail/format.dart';
 import '../mail/inbox_screen.dart' show composeFlight;
-import '../mail/mail_providers.dart';
 import '../mail/models.dart';
+import '../mail/outbox.dart';
 import '../signatures/signature.dart';
 import '../signatures/signatures_repository.dart';
 import '../templates/template.dart';
@@ -95,6 +95,9 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   void initState() {
     super.initState();
     _sourceId = widget.args.source?.id;
+    for (final a in widget.args.attachments) {
+      _attachments.add(_Attachment('${a['filename']}', '${a['type']}', base64Decode('${a['content']}')));
+    }
     _subject.addListener(_changed);
     _bodyFocus.addListener(() => setState(() {}));
     _body.addListener(_changed);
@@ -127,30 +130,27 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     } else {
       _prefill();
     }
+    // The account's own address can always send, so writing offline does not wait for the sender list.
+    if (mounted && _from.isEmpty) {
+      setState(() {
+        _from = account.email;
+        _fromName = account.displayName;
+      });
+    }
     try {
       final results = await Future.wait([api.senders(), ref.read(signaturesProvider.future)]);
       _senders = results[0] as Senders;
       _signatures = results[1] as List<Signature>;
-    } catch (e) {
-      if (mounted) showToast(context, 'Could not load senders: $e');
-    }
+    } catch (_) {}
     if (!mounted) return;
     final own = {for (final s in _senders?.senders ?? <Sender>[]) s.address};
     setState(() {
       _cc = _cc.where((a) => !own.contains(a.toLowerCase())).toList();
       _showCopies = _showCopies && (_cc.isNotEmpty || _bcc.isNotEmpty);
-      final account = ref.read(activeAccountProvider);
-      if (_from.isEmpty) _from = _defaultFrom();
-      if (_fromName.isEmpty) {
-        _fromName = _from == account?.email
-            ? account!.displayName
-            : _senders?.senders.where((s) => s.address == _from).firstOrNull?.name ?? '';
-      }
+      if (_fromName.isEmpty) _fromName = _senders?.senders.where((s) => s.address == _from).firstOrNull?.name ?? '';
       _pickSignature();
     });
   }
-
-  String _defaultFrom() => ref.read(activeAccountProvider)?.email ?? _senders?.senders.firstOrNull?.address ?? '';
 
   void _pickSignature() {
     if (_signatureOff) return;
@@ -326,28 +326,53 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
         for (final a in _attachments) {'filename': a.name, 'type': a.type, 'content': base64Encode(a.bytes)},
       ],
     };
+    if (!test) return _queue(payload);
     try {
-      final api = ref.read(apiProvider);
-      final isReply = !test && _sourceId != null && (_kind == ComposeKind.reply || _kind == ComposeKind.replyAll);
-      isReply ? await api.reply(_sourceId!, payload) : await api.send(payload);
+      await ref.read(apiProvider).send(payload);
       Feel.commit.ring();
       if (!mounted) return;
-      if (test) {
-        showToast(context, 'Test sent to $_from');
-        setState(() => _sending = false);
-        return;
-      }
-      _autosave?.cancel();
-      await ref.read(databaseProvider).deleteDraft(_draftId);
-      ref.invalidate(inboxProvider('sent'));
-      if (!mounted) return;
-      showToast(context, 'Sent');
-      context.pop();
+      showToast(context, 'Test sent to $_from');
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _sending = false);
-      showToast(context, 'Not sent: $e');
+      if (mounted) showToast(context, 'Not sent: $e');
     }
+    if (mounted) setState(() => _sending = false);
+  }
+
+  /// Hands the message to the outbox and leaves at once, as Gmail does. It waits a moment for Undo, then sends, and
+  /// keeps trying until it goes through, even offline or with the app closed.
+  Future<void> _queue(Map<String, dynamic> payload) async {
+    final account = ref.read(activeAccountProvider)!;
+    final outbox = ref.read(outboxProvider.notifier);
+    final db = ref.read(databaseProvider);
+    final router = GoRouter.of(context);
+    final isReply = _sourceId != null && (_kind == ComposeKind.reply || _kind == ComposeKind.replyAll);
+    final draft = jsonEncode(_draft.toJson());
+    final id = await outbox.add(
+      account,
+      payload,
+      sourceId: isReply ? _sourceId : null,
+      threadId: isReply ? widget.args.source?.threadId ?? widget.args.threadId : null,
+      draft: draft,
+    );
+    _autosave?.cancel();
+    await db.deleteDraft(_draftId);
+    Feel.commit.ring();
+    if (!mounted) return;
+    showToast(
+      context,
+      'Sending…',
+      action: 'Undo',
+      onAction: () async {
+        final back = await outbox.take(id);
+        if (back == null) return;
+        await db.putDraft(_draftId, account.id, draft);
+        router.push(
+          '/compose',
+          extra: ComposeArgs(draftId: _draftId, attachments: back.attachments, threadId: back.threadId),
+        );
+      },
+    );
+    context.pop();
   }
 
   Future<void> _attach() async {
