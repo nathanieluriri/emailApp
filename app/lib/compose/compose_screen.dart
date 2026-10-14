@@ -31,6 +31,7 @@ import '../templates/variables.dart';
 import 'body_editor.dart';
 import 'compose_args.dart';
 import 'compose_draft.dart';
+import 'drafts_screen.dart';
 import 'html_tools.dart';
 import 'preview.dart';
 import 'recipient_field.dart';
@@ -87,7 +88,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   String? _sourceId;
   final _attachments = <_Attachment>[];
   bool _sending = false;
-  bool _formatting = false;
+  final _bodyFocus = FocusNode();
   Timer? _autosave;
 
   @override
@@ -95,6 +96,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     super.initState();
     _sourceId = widget.args.source?.id;
     _subject.addListener(_changed);
+    _bodyFocus.addListener(() => setState(() {}));
     _body.addListener(_changed);
     _load();
     if (widget.args.design) {
@@ -110,6 +112,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     _autosave?.cancel();
     _subject.dispose();
     _body.dispose();
+    _bodyFocus.dispose();
     super.dispose();
   }
 
@@ -163,32 +166,55 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   }
 
   void _prefill() {
-    final s = widget.args.source;
     final t = widget.args.template;
     if (t != null) _applyTemplate(t);
+    _applyKind();
+  }
+
+  void _applyKind() {
+    final s = widget.args.source;
     if (s == null) return;
     String quoteHeader(String line) =>
-        '<div style="margin-top:20px;color:#49454F;font-size:13px;">$line</div><blockquote style="margin:8px 0 0;padding-left:12px;border-left:3px solid #CAC4D0;">${s.html ?? escapeHtml(s.text ?? '').replaceAll('\n', '<br>')}</blockquote>';
+        '<div class="bw-quote"><div style="margin-top:20px;color:#49454F;font-size:13px;">$line</div><blockquote style="margin:8px 0 0;padding-left:12px;border-left:3px solid #CAC4D0;">${s.html ?? escapeHtml(s.text ?? '').replaceAll('\n', '<br>')}</blockquote></div>';
     final sender = escapeHtml('${s.from.display} <${s.from.address}>');
+    final own = {for (final x in _senders?.senders ?? <Sender>[]) x.address, ref.read(activeAccountProvider)?.email};
     switch (_kind) {
       case ComposeKind.reply || ComposeKind.replyAll:
         _to = s.outgoing ? s.to.map((a) => a.address).toList() : [s.from.address];
-        if (_kind == ComposeKind.replyAll) {
-          _cc = [...s.to, ...s.cc].map((a) => a.address).where((a) => !_to.contains(a)).toList();
-          _showCopies = _cc.isNotEmpty;
-        }
+        _cc = _kind == ComposeKind.replyAll
+            ? [...s.to, ...s.cc].map((a) => a.address).where((a) => !_to.contains(a) && !own.contains(a.toLowerCase())).toList()
+            : [];
+        _showCopies = _cc.isNotEmpty || _bcc.isNotEmpty;
         _subject.text = RegExp(r'^re:', caseSensitive: false).hasMatch(s.subject) ? s.subject : 'Re: ${s.subject}';
         _quote = quoteHeader('On ${longDate(s.sentAt)}, $sender wrote:');
       case ComposeKind.forward:
+        _to = [];
+        _cc = [];
         _subject.text = RegExp(r'^fwd?:', caseSensitive: false).hasMatch(s.subject) ? s.subject : 'Fwd: ${s.subject}';
         _quote = quoteHeader(
           '---------- Forwarded message ----------<br>From: $sender<br>Date: ${longDate(s.sentAt)}<br>'
           'Subject: ${escapeHtml(s.subject)}<br>To: ${escapeHtml(s.to.map((a) => a.address).join(', '))}',
         );
-        _fetchForwardedAttachments(s);
+        if (_attachments.isEmpty) _fetchForwardedAttachments(s);
       case ComposeKind.fresh:
         break;
     }
+  }
+
+  Future<void> _switchKind(BuildContext anchor) async {
+    const kinds = [ComposeKind.reply, ComposeKind.replyAll, ComposeKind.forward];
+    final picked = await showGooMenu(anchor, const [
+      GooMenuItem(label: 'Reply', icon: LucideIcons.reply),
+      GooMenuItem(label: 'Reply to all', icon: LucideIcons.replyAll),
+      GooMenuItem(label: 'Forward', icon: LucideIcons.forward),
+    ]);
+    if (picked == null || kinds[picked] == _kind || !mounted) return;
+    setState(() {
+      _kind = kinds[picked];
+      if (_kind != ComposeKind.forward) _attachments.clear();
+      _applyKind();
+    });
+    _changed();
   }
 
   Future<void> _fetchForwardedAttachments(Message s) async {
@@ -447,8 +473,9 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
   }
 
   Future<void> _menu(BuildContext anchor) async {
-    const actions = ['preview', 'test', 'template', 'save', 'builder', 'html', 'discard'];
+    const actions = ['draft', 'preview', 'test', 'template', 'save', 'builder', 'html', 'discard'];
     final picked = await showGooMenu(anchor, const [
+      GooMenuItem(label: 'Save draft', icon: LucideIcons.save),
       GooMenuItem(label: 'Preview', icon: LucideIcons.eye),
       GooMenuItem(label: 'Send a test to myself', icon: LucideIcons.sendHorizontal),
       GooMenuItem(label: 'Use a template', icon: LucideIcons.layoutTemplate),
@@ -460,6 +487,10 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     final action = picked == null ? null : actions[picked];
     if (!mounted) return;
     switch (action) {
+      case 'draft':
+        await _saveDraft();
+        ref.invalidate(draftsProvider);
+        if (mounted) showToast(context, _blank ? 'Nothing to save yet' : 'Saved to drafts');
       case 'preview':
         showPreview(context, _assemble());
       case 'test':
@@ -580,15 +611,37 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
                               setState(() => _to = v);
                               _changed();
                             },
-                            trailing: _showCopies
+                            leading: widget.args.source == null
                                 ? null
-                                : TextButton(
-                                    onPressed: () {
-                                      Feel.tap.ring();
-                                      setState(() => _showCopies = true);
-                                    },
-                                    child: Text('Cc/Bcc', style: AppText.label.copyWith(color: AppColors.inkSoft)),
+                                : Builder(
+                                    builder: (anchor) => PaperPress(
+                                      onTap: () => _switchKind(anchor),
+                                      semanticLabel: 'Reply, reply to all or forward',
+                                      washRadius: 16,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            switch (_kind) {
+                                              ComposeKind.replyAll => LucideIcons.replyAll,
+                                              ComposeKind.forward => LucideIcons.forward,
+                                              _ => LucideIcons.reply,
+                                            },
+                                            size: 22,
+                                            color: AppColors.inkSoft,
+                                          ),
+                                          Icon(LucideIcons.chevronDown, size: 14, color: AppColors.inkSoft),
+                                        ],
+                                      ),
+                                    ),
                                   ),
+                            trailing: IconPress(
+                              icon: _showCopies ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                              label: _showCopies ? 'Hide Cc and Bcc' : 'Show Cc and Bcc',
+                              size: 20,
+                              color: AppColors.inkSoft,
+                              onTap: () => setState(() => _showCopies = !_showCopies),
+                            ),
                           ),
                           AnimatedSize(
                             duration: const Duration(milliseconds: 220),
@@ -597,9 +650,23 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
                                 ? Column(
                                     children: [
                                       divider,
-                                      RecipientField(label: 'Cc', values: _cc, onChanged: (v) => setState(() => _cc = v)),
+                                      RecipientField(
+                                        label: 'Cc',
+                                        values: _cc,
+                                        onChanged: (v) {
+                                          setState(() => _cc = v);
+                                          _changed();
+                                        },
+                                      ),
                                       divider,
-                                      RecipientField(label: 'Bcc', values: _bcc, onChanged: (v) => setState(() => _bcc = v)),
+                                      RecipientField(
+                                        label: 'Bcc',
+                                        values: _bcc,
+                                        onChanged: (v) {
+                                          setState(() => _bcc = v);
+                                          _changed();
+                                        },
+                                      ),
                                     ],
                                   )
                                 : const SizedBox(width: double.infinity),
@@ -646,7 +713,7 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
                     ),
                     SliverToBoxAdapter(
                       child: plain
-                          ? RichEditor(controller: _body.quill, toolbar: false, scrollable: false)
+                          ? RichEditor(controller: _body.quill, focusNode: _bodyFocus, toolbar: false, scrollable: false)
                           : _DesignedBody(
                               mode: _body.mode,
                               onEdit: _openAdvanced,
@@ -664,44 +731,17 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
                   ],
                 ),
               ),
-              if (plain)
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 200),
-                  child: _formatting
-                      ? DecoratedBox(
-                          decoration: BoxDecoration(
-                            border: Border(top: BorderSide(color: AppColors.hairline)),
-                          ),
-                          child: FormatBar(controller: _body.quill),
-                        )
-                      : const SizedBox(width: double.infinity),
-                ),
-              SafeArea(
-                top: false,
-                child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: AppColors.hairline)),
-                  ),
-                  child: Row(
-                    children: [
-                      if (plain)
-                        IconPress(
-                          icon: LucideIcons.aLargeSmall,
-                          label: 'Formatting',
-                          color: _formatting ? AppColors.accentBright : AppColors.inkSoft,
-                          onTap: () => setState(() => _formatting = !_formatting),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                child: plain && _bodyFocus.hasFocus
+                    ? DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          border: Border(top: BorderSide(color: AppColors.hairline)),
                         ),
-                      IconPress(icon: LucideIcons.paperclip, label: 'Attach', color: AppColors.inkSoft, onTap: _attach),
-                      IconPress(icon: LucideIcons.signature, label: 'Signature', color: AppColors.inkSoft, onTap: _chooseSignature),
-                      const Spacer(),
-                      if (_attachments.isNotEmpty)
-                        Text('${_attachments.length} attached', style: AppText.docMeta.copyWith(color: AppColors.inkSoft)),
-                      const SizedBox(width: 12),
-                    ],
-                  ),
-                ),
+                        child: SafeArea(top: false, child: FormatBar(controller: _body.quill)),
+                      )
+                    : const SizedBox(width: double.infinity),
               ),
             ],
           ),
@@ -722,37 +762,22 @@ class _FromRow extends StatelessWidget {
     onTap: onTap,
     semanticLabel: 'Change sender',
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 12, 10),
+      padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
       child: Row(
         children: [
           SizedBox(
-            width: 48,
-            child: Text('From', style: AppText.search.copyWith(color: AppColors.inkSoft)),
+            width: 64,
+            child: Text('From', style: AppText.search.copyWith(color: AppColors.inkSoft, fontSize: 16)),
           ),
-          if (address.isNotEmpty) ...[Avatar(name: name.isEmpty ? address : name, size: 28), const SizedBox(width: 10)],
           Expanded(
-            child: address.isEmpty
-                ? Text('Loading', style: AppText.search.copyWith(color: AppColors.inkFaint))
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name.isEmpty ? address : name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.search.copyWith(color: AppColors.ink, fontWeight: FontWeight.w500),
-                      ),
-                      if (name.isNotEmpty)
-                        Text(
-                          address,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppText.docMeta.copyWith(color: AppColors.inkSoft),
-                        ),
-                    ],
-                  ),
+            child: Text(
+              address.isEmpty ? 'Loading' : address,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.search.copyWith(color: address.isEmpty ? AppColors.inkFaint : AppColors.ink, fontSize: 16),
+            ),
           ),
-          Icon(LucideIcons.chevronDown, size: 18, color: AppColors.inkSoft),
+          if (name.isNotEmpty) Text(name, style: AppText.docMeta.copyWith(color: AppColors.inkSoft)),
         ],
       ),
     ),

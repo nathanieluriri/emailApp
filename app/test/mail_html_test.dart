@@ -1,6 +1,7 @@
 import 'package:bridgewood_mail/builder/blocks.dart';
 import 'package:bridgewood_mail/builder/html_export.dart';
 import 'package:bridgewood_mail/compose/html_tools.dart';
+import 'package:bridgewood_mail/mail/quote.dart';
 import 'package:bridgewood_mail/signatures/signature.dart';
 import 'package:bridgewood_mail/signatures/signatures_repository.dart';
 import 'package:bridgewood_mail/templates/variables.dart';
@@ -72,5 +73,18 @@ void main() {
     const admin = Signature(id: 'b', name: 'Admin', senderAddress: 'admin@x.ng', isDefault: true);
     expect(defaultSignatureFor([all, admin], 'admin@x.ng')?.id, 'b');
     expect(defaultSignatureFor([all, admin], 'info@x.ng')?.id, 'a');
+  });
+
+  test('quoted replies fold away from what was written', () {
+    final (body, quoted) = splitQuotedHtml(
+      '<div>Cool message</div><div class="gmail_quote">On Wed someone wrote:<blockquote>old</blockquote></div>',
+    );
+    expect(body, contains('Cool message'));
+    expect(body, isNot(contains('old')));
+    expect(quoted, contains('old'));
+    expect(splitQuotedHtml('<p>no quote here</p>').$2, isNull);
+    final (text, older) = splitQuotedText('Thanks!\n\nOn Wed, 14 Oct 2026, Ada <ada@x.ng> wrote:\n> earlier');
+    expect(text, 'Thanks!');
+    expect(older, contains('earlier'));
   });
 }

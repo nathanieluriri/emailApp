@@ -18,6 +18,7 @@ import 'label_picker.dart';
 import 'mail_providers.dart';
 import 'mail_repository.dart';
 import 'models.dart';
+import 'quote.dart';
 
 class ThreadScreen extends ConsumerStatefulWidget {
   const ThreadScreen({super.key, required this.threadId, this.heroMessageId});
@@ -143,11 +144,13 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Row(
                   children: [
+                    _ActionPill(icon: LucideIcons.reply, onTap: () => _compose(ComposeKind.reply, t.messages.last)),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: _ActionPill(
-                        icon: LucideIcons.reply,
-                        label: 'Reply',
-                        onTap: () => _compose(ComposeKind.reply, t.messages.last),
+                        icon: LucideIcons.replyAll,
+                        label: 'Reply all',
+                        onTap: () => _compose(ComposeKind.replyAll, t.messages.last),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -158,8 +161,6 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
                         onTap: () => _compose(ComposeKind.forward, t.messages.last),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    _ActionPill(icon: LucideIcons.replyAll, onTap: () => _compose(ComposeKind.replyAll, t.messages.last)),
                   ],
                 ),
               ),
@@ -170,11 +171,13 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
   Widget _body(MailThread t) {
     final last = t.messages.last;
     final heroId = widget.heroMessageId ?? last.id;
+    final labels = {for (final l in ref.watch(labelsProvider).value ?? <MailLabel>[]) l.id: l.name};
+    final api = ref.read(mailRepositoryProvider).api;
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
+          padding: const EdgeInsets.fromLTRB(20, 4, 8, 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -190,7 +193,7 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
                         type: MaterialType.transparency,
                         child: Text(
                           t.subject.isEmpty ? last.subject : t.subject,
-                          style: AppText.pageHeading2.copyWith(color: AppColors.ink),
+                          style: AppText.pageHeading1.copyWith(color: AppColors.ink, fontWeight: FontWeight.w400),
                         ),
                       ),
                     ),
@@ -198,10 +201,21 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(color: AppColors.accentMuted, borderRadius: BorderRadius.circular(4)),
-                        child: Text(systemLabels[l] ?? 'Label', style: AppText.chipLabel.copyWith(color: AppColors.ink)),
+                        child: Text(labels[l] ?? systemLabels[l] ?? l, style: AppText.label.copyWith(color: AppColors.ink)),
                       ),
                   ],
                 ),
+              ),
+              IconPress(
+                icon: LucideIcons.star,
+                label: last.starred ? 'Remove star' : 'Add star',
+                color: last.starred ? AppColors.found : AppColors.inkSoft,
+                onTap: () async {
+                  Feel.turn.ring();
+                  await api.updateMessage(last.id, starred: !last.starred);
+                  ref.invalidate(threadProvider(widget.threadId));
+                  ref.invalidate(inboxProvider);
+                },
               ),
             ],
           ),
@@ -212,9 +226,24 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
             child: _MessageCard(
               message: m,
               heroAvatar: m.id == heroId,
-              expanded: m.id == last.id || _expanded.contains(m.id),
+              expanded: m.id == last.id || !m.read || _expanded.contains(m.id),
               onToggle: () => setState(() => _expanded.contains(m.id) ? _expanded.remove(m.id) : _expanded.add(m.id)),
               onReply: () => _compose(ComposeKind.reply, m),
+              onMore: (anchor) async {
+                final picked = await showGooMenu(anchor, const [
+                  GooMenuItem(label: 'Reply all', icon: LucideIcons.replyAll),
+                  GooMenuItem(label: 'Forward', icon: LucideIcons.forward),
+                  GooMenuItem(label: 'Mark unread from here', icon: LucideIcons.mailOpen),
+                ]);
+                switch (picked) {
+                  case 0:
+                    _compose(ComposeKind.replyAll, m);
+                  case 1:
+                    _compose(ComposeKind.forward, m);
+                  case 2:
+                    await _act('Marked unread', () => api.updateMessage(m.id, read: false));
+                }
+              },
             ),
           ),
       ],
@@ -222,12 +251,13 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
   }
 }
 
-class _MessageCard extends StatelessWidget {
+class _MessageCard extends StatefulWidget {
   const _MessageCard({
     required this.message,
     required this.expanded,
     required this.onToggle,
     required this.onReply,
+    required this.onMore,
     required this.heroAvatar,
   });
   final Message message;
@@ -235,15 +265,29 @@ class _MessageCard extends StatelessWidget {
   final bool heroAvatar;
   final VoidCallback onToggle;
   final VoidCallback onReply;
+  final ValueChanged<BuildContext> onMore;
+
+  @override
+  State<_MessageCard> createState() => _MessageCardState();
+}
+
+class _MessageCardState extends State<_MessageCard> {
+  bool _details = false;
+  bool _quoted = false;
 
   @override
   Widget build(BuildContext context) {
-    final m = message;
+    final m = widget.message;
+    final expanded = widget.expanded;
     final sender = m.outgoing ? 'Me' : m.from.display;
-    final avatar = Avatar(name: m.from.display);
+    final avatar = Avatar(name: m.from.display, size: 44);
+    final recipients = m.to.map((a) => a.display).join(', ');
+    final hasHtml = m.html != null && m.html!.trim().isNotEmpty;
+    final (body, quoted) = hasHtml ? splitQuotedHtml(m.html!) : splitQuotedText(m.text ?? '');
+    final meta = AppText.bodyTight.copyWith(color: AppColors.inkSoft, fontSize: 14);
     return Container(
-      margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(18)),
       child: AnimatedSize(
         duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutCubic,
@@ -252,15 +296,15 @@ class _MessageCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             PaperPress(
-              onTap: onToggle,
-              washRadius: 16,
+              onTap: widget.onToggle,
+              washRadius: 18,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 4, 14),
+                padding: const EdgeInsets.fromLTRB(16, 16, 4, 12),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    heroAvatar ? Hero(tag: 'avatar-${m.id}', child: avatar) : avatar,
-                    const SizedBox(width: 12),
+                    widget.heroAvatar ? Hero(tag: 'avatar-${m.id}', child: avatar) : avatar,
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -272,53 +316,133 @@ class _MessageCard extends StatelessWidget {
                                   sender,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: AppText.rowTitle.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                                  style: AppText.rowTitle.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 17),
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              Text(shortDate(m.sentAt), style: AppText.docMeta.copyWith(color: AppColors.inkSoft)),
+                              Text(shortDate(m.sentAt), style: meta),
                             ],
                           ),
                           const SizedBox(height: 2),
-                          Text(
-                            expanded ? 'to ${m.to.map((a) => a.display).join(', ')}' : m.snippet,
-                            maxLines: expanded ? 2 : 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppText.bodyTight.copyWith(color: AppColors.inkSoft),
-                          ),
+                          if (expanded)
+                            GestureDetector(
+                              onTap: () {
+                                Feel.tap.ring();
+                                setState(() => _details = !_details);
+                              },
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      'to ${m.outgoing ? recipients : 'me'}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: meta,
+                                    ),
+                                  ),
+                                  Icon(_details ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: 16, color: AppColors.inkSoft),
+                                ],
+                              ),
+                            )
+                          else
+                            Text(m.snippet, maxLines: 1, overflow: TextOverflow.ellipsis, style: meta),
                         ],
                       ),
                     ),
-                    if (expanded) IconPress(icon: LucideIcons.reply, label: 'Reply', size: 20, onTap: onReply),
+                    if (expanded) ...[
+                      IconPress(icon: LucideIcons.reply, label: 'Reply', size: 22, onTap: widget.onReply),
+                      Builder(
+                        builder: (anchor) =>
+                            IconPress(icon: LucideIcons.ellipsisVertical, label: 'More', size: 22, onTap: () => widget.onMore(anchor)),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
             if (expanded) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                child: m.html != null && m.html!.trim().isNotEmpty
-                    ? HtmlView(html: m.html!)
-                    : Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: SelectableText(m.text ?? '', style: AppText.pageBody.copyWith(color: AppColors.ink)),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: !_details
+                    ? const SizedBox(width: double.infinity)
+                    : Container(
+                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(color: AppColors.surfaceHigh, borderRadius: BorderRadius.circular(14)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _Detail('From', '${m.from.display}  ${m.from.address}'),
+                            _Detail('To', m.to.map((a) => a.address).join(', ')),
+                            if (m.cc.isNotEmpty) _Detail('Cc', m.cc.map((a) => a.address).join(', ')),
+                            _Detail('Date', longDate(m.sentAt)),
+                          ],
+                        ),
                       ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                child: hasHtml
+                    ? HtmlView(html: _quoted && quoted != null ? m.html! : body, dark: AppColors.current.brightness == Brightness.dark)
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: SelectableText(
+                          _quoted && quoted != null ? m.text ?? '' : body,
+                          style: AppText.pageBody.copyWith(color: AppColors.ink, fontSize: 17, height: 1.5),
+                        ),
+                      ),
+              ),
+              if (quoted != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () {
+                      Feel.tap.ring();
+                      setState(() => _quoted = !_quoted);
+                    },
+                    child: Text(
+                      _quoted ? 'Hide quoted text' : 'Show quoted text',
+                      style: AppText.search.copyWith(color: AppColors.accentBright),
+                    ),
+                  ),
+                ),
               if (m.attachments.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: Wrap(spacing: 8, runSpacing: 8, children: [for (final a in m.attachments) AttachmentChip(attachment: a)]),
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: Text(longDate(m.sentAt), style: AppText.docMeta.copyWith(color: AppColors.inkFaint)),
-              ),
+              const SizedBox(height: 10),
             ],
           ],
         ),
       ),
     );
   }
+}
+
+class _Detail extends StatelessWidget {
+  const _Detail(this.label, this.value);
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 52,
+          child: Text(label, style: AppText.bodyTight.copyWith(color: AppColors.inkSoft)),
+        ),
+        Expanded(
+          child: SelectableText(value, style: AppText.bodyTight.copyWith(color: AppColors.ink)),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ActionPill extends StatelessWidget {
@@ -330,7 +454,7 @@ class _ActionPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) => PaperPress(
     onTap: onTap,
-    semanticLabel: label ?? 'Reply all',
+    semanticLabel: label ?? 'Reply',
     washRadius: 26,
     child: Container(
       height: 52,

@@ -3,19 +3,30 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 const _shell = '''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>html,body{margin:0;padding:0;background:#fff;color:#111;font-family:-apple-system,Roboto,Inter,sans-serif;font-size:15px;line-height:1.45;word-wrap:break-word}
+<style>html,body{margin:0;padding:0;background:#fff;color:#111;font-family:-apple-system,Roboto,Inter,sans-serif;font-size:16px;line-height:1.5;word-wrap:break-word}
 body{padding:12px}img{max-width:100%;height:auto}table{max-width:100%!important}pre{white-space:pre-wrap}</style></head>
 <body>__BODY__<script>
 function h(){Height.postMessage(String(document.documentElement.scrollHeight))}
 window.addEventListener('load',h);new ResizeObserver(h).observe(document.body);setTimeout(h,300);
 </script></body></html>''';
 
-String wrapEmailHtml(String body) => _shell.replaceFirst('__BODY__', body);
+final _designed = RegExp(r'bgcolor|background|<table', caseSensitive: false);
+
+/// Plain emails take the app's dark colours; designed ones keep the white page they were drawn on.
+String wrapEmailHtml(String body, {bool dark = false}) {
+  final page = _shell.replaceFirst('__BODY__', body);
+  if (!dark || _designed.hasMatch(body)) return page;
+  return page.replaceFirst(
+    '</style>',
+    'html,body{background:#1E1E22;color:#E6E1E5}a{color:#D0BCFF}blockquote{border-color:#4A4458!important}</style>',
+  );
+}
 
 /// Renders an email body in a webview that grows to fit its content, so it scrolls with the thread.
 class HtmlView extends StatefulWidget {
-  const HtmlView({super.key, required this.html, this.fixedWidth});
+  const HtmlView({super.key, required this.html, this.fixedWidth, this.dark = false});
   final String html;
+  final bool dark;
   final double? fixedWidth;
 
   @override
@@ -26,7 +37,7 @@ class _HtmlViewState extends State<HtmlView> {
   double _height = 120;
   late final WebViewController _controller = WebViewController()
     ..setJavaScriptMode(JavaScriptMode.unrestricted)
-    ..setBackgroundColor(Colors.white)
+    ..setBackgroundColor(Colors.transparent)
     ..addJavaScriptChannel(
       'Height',
       onMessageReceived: (m) {
@@ -43,12 +54,12 @@ class _HtmlViewState extends State<HtmlView> {
         },
       ),
     )
-    ..loadHtmlString(wrapEmailHtml(widget.html));
+    ..loadHtmlString(wrapEmailHtml(widget.html, dark: widget.dark));
 
   @override
   void didUpdateWidget(HtmlView old) {
     super.didUpdateWidget(old);
-    if (old.html != widget.html) _controller.loadHtmlString(wrapEmailHtml(widget.html));
+    if (old.html != widget.html || old.dark != widget.dark) _controller.loadHtmlString(wrapEmailHtml(widget.html, dark: widget.dark));
   }
 
   @override

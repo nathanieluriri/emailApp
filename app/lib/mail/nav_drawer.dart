@@ -11,7 +11,7 @@ import '../core/quire/widgets/digit_roll.dart';
 import '../core/quire/widgets/press_fade.dart';
 import '../core/widgets.dart';
 import 'mail_providers.dart';
-import '../core/brand.dart';
+import '../compose/drafts_screen.dart';
 
 const _icons = {
   'inbox': LucideIcons.inbox,
@@ -81,9 +81,7 @@ class NavDrawer extends ConsumerWidget {
               color: AppColors.ground.withValues(alpha: 0.5),
               child: Column(
                 children: [
-                  const SizedBox(height: 14),
-                  const BrandMark(size: 30),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 64),
                   for (final a in accounts?.accounts ?? [])
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -141,7 +139,13 @@ class NavDrawer extends ConsumerWidget {
                   ),
                   for (final e in systemLabels.entries)
                     row(e.key, e.value, _icons[e.key]!, count: e.key == 'inbox' || e.key == 'spam' ? unread[e.key] ?? 0 : 0),
-                  row('/drafts', 'Drafts', LucideIcons.file, onTap: () => onLink('/drafts')),
+                  row(
+                    '/drafts',
+                    'Drafts',
+                    LucideIcons.file,
+                    count: ref.watch(draftsProvider).value?.length ?? 0,
+                    onTap: () => onLink('/drafts'),
+                  ),
                   if (labels.any((l) => !l.system)) heading('Labels'),
                   for (final l in labels.where((l) => !l.system))
                     row(l.id, l.name, LucideIcons.tag, tint: parseHex(l.color, AppColors.inkSoft), count: l.unread),

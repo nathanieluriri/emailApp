@@ -87,8 +87,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
     if (_scroll.position.extentAfter < 600) ref.read(inboxProvider(ref.read(currentLabelProvider)).notifier).loadMore();
   }
 
+  // A spring only gets within tolerance of its target; snap so a closed drawer leaves no invisible scrim catching taps.
   void _settleDrawer(bool open, [double velocity = 0]) =>
-      _drawer.animateWith(SpringSimulation(AppSprings.drawer, _drawer.value, open ? 1 : 0, velocity));
+      _drawer.animateWith(SpringSimulation(AppSprings.drawer, _drawer.value, open ? 1 : 0, velocity)).then((_) {
+        if (mounted) _drawer.value = open ? 1 : 0;
+      });
 
   void _toggleDrawer() {
     Feel.turn.ring();
@@ -271,7 +274,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> with SingleTickerProv
               animation: _drawer,
               builder: (context, _) {
                 final p = _drawer.value.clamp(0.0, 1.0);
-                if (p == 0) return const SizedBox.shrink();
+                if (p < 0.01) return const SizedBox.shrink();
                 return Stack(
                   children: [
                     GestureDetector(
