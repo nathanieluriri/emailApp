@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../accounts/accounts_controller.dart';
 import '../compose/compose_args.dart';
+import '../core/confetti.dart';
 import '../core/goo_menu.dart';
 import '../core/motion.dart';
 import '../core/quire/theme/colors.dart';
@@ -19,6 +21,8 @@ import 'mail_providers.dart';
 import 'mail_repository.dart';
 import 'models.dart';
 import 'quote.dart';
+import 'reaction_widgets.dart';
+import 'reactions.dart';
 
 class ThreadScreen extends ConsumerStatefulWidget {
   const ThreadScreen({super.key, required this.threadId, this.heroMessageId});
@@ -31,34 +35,68 @@ class ThreadScreen extends ConsumerStatefulWidget {
 
 class _ThreadScreenState extends ConsumerState<ThreadScreen> {
   final _expanded = <String>{};
-  bool _markedRead = false;
+  final _markedRead = <String>{};
 
-  void _markRead(MailThread t) {
-    if (_markedRead) return;
-    _markedRead = true;
-    final api = ref.read(mailRepositoryProvider).api;
-    final inbox = ref.read(inboxProvider(ref.read(currentLabelProvider)).notifier);
-    for (final m in t.messages.where((m) => !m.read)) {
-      api.updateMessage(m.id, read: true).ignore();
-      inbox.markRead(m.id);
-    }
+  @override
+  void initState() {
+    super.initState();
+    precacheReactionEmoji();
   }
 
-  Future<void> _act(String done, Future<void> Function() action, {bool leave = true}) async {
+  void _markRead(MailThread t) {
+    final unread = t.messages.where((m) => !m.read && !_markedRead.contains(m.id)).map((m) => m.id).toList();
+    if (unread.isEmpty) return;
+    _markedRead.addAll(unread);
+    ref.read(mailRepositoryProvider).api.updateThread(t.id, read: true).then((_) {
+      if (mounted) ref.invalidate(labelsProvider);
+    }).ignore();
+    ref.read(inboxProvider(ref.read(currentLabelProvider)).notifier).markThreadRead(t.id);
+  }
+
+  Future<void> _act(String done, Future<void> Function() action, {bool leave = true, Future<void> Function()? undo}) async {
     Feel.commit.ring();
+    final container = ProviderScope.containerOf(context);
     try {
       await action();
       ref.invalidate(inboxProvider);
       ref.invalidate(labelsProvider);
       if (!mounted) return;
-      showToast(context, done);
+      showToast(
+        context,
+        done,
+        action: undo == null ? null : 'Undo',
+        onAction: undo == null
+            ? null
+            : () => undo().then((_) {
+                container
+                  ..invalidate(inboxProvider)
+                  ..invalidate(labelsProvider);
+              }).ignore(),
+      );
       if (leave) context.pop();
     } catch (e) {
       if (mounted) showToast(context, '$e');
     }
   }
 
-  Future<void> _each(MailThread t, Future<void> Function(Message m) action) => Future.wait(t.messages.map(action));
+  Future<void> _react(BuildContext anchor, Message m) async {
+    final blocked = reactionBlocker(m, ref.read(activeAccountProvider)?.email.toLowerCase() ?? '');
+    if (blocked != null) return showToast(context, blocked);
+    final box = anchor.findRenderObject()! as RenderBox;
+    final origin = box.localToGlobal(box.size.center(Offset.zero));
+    final emoji = await showReactionBar(anchor);
+    if (emoji == null || !mounted) return;
+    final pending = ref.read(pendingReactionsProvider.notifier);
+    final already = [...m.reactions, ...?ref.read(pendingReactionsProvider)[m.id]].any((r) => r.mine && r.emoji == emoji);
+    if (already) return showToast(context, 'You already reacted with $emoji');
+    final sent = pending.add(m, emoji);
+    if (emoji == '🎉') showConfetti(context, origin);
+    showToast(context, 'Sent $emoji', action: 'Undo', onAction: () => pending.undo(m.id, emoji));
+    sent.catchError((Object e) {
+      if (mounted) showToast(context, 'Reaction not sent: $e');
+      return false;
+    }).ignore();
+  }
 
   void _compose(ComposeKind kind, Message m) => context.push(
     '/compose',
@@ -68,10 +106,11 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
   Future<void> _menu(BuildContext anchor, MailThread t) async {
     final api = ref.read(mailRepositoryProvider).api;
     final last = t.messages.last;
-    final spam = last.labels.contains('spam');
+    final starred = t.messages.any((m) => m.starred);
+    final spam = t.messages.any((m) => m.labels.contains('spam'));
     final picked = await showGooMenu(anchor, [
       const GooMenuItem(label: 'Label as', icon: LucideIcons.tag),
-      GooMenuItem(label: last.starred ? 'Remove star' : 'Add star', icon: LucideIcons.star),
+      GooMenuItem(label: starred ? 'Remove star' : 'Add star', icon: LucideIcons.star),
       const GooMenuItem(label: 'Mark unread', icon: LucideIcons.mailOpen),
       const GooMenuItem(label: 'Forward', icon: LucideIcons.forward),
       GooMenuItem(
@@ -83,22 +122,30 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
     if (!mounted) return;
     switch (picked) {
       case 0:
-        final labels = await pickLabels(context, last.labels);
-        if (labels != null) await _act('Labels updated', () => _each(t, (m) => api.updateMessage(m.id, labels: labels)), leave: false);
+        final current = {for (final m in t.messages) ...m.labels}..remove('sent');
+        final labels = await pickLabels(context, [...current]);
+        if (labels == null) return;
+        final add = labels.where((l) => !current.contains(l)).toList();
+        final remove = current.where((l) => !labels.contains(l)).toList();
+        final archived = add.remove('inbox') ? false : (remove.remove('inbox') ? true : null);
+        await _act('Labels updated', () => api.updateThread(t.id, add: add, remove: remove, archived: archived), leave: false);
+        ref.invalidate(threadProvider(widget.threadId));
       case 1:
-        await _act(last.starred ? 'Star removed' : 'Starred', () => api.updateMessage(last.id, starred: !last.starred), leave: false);
+        await _act(starred ? 'Star removed' : 'Starred', () => api.updateThread(t.id, starred: !starred), leave: false);
         ref.invalidate(threadProvider(widget.threadId));
       case 2:
-        await _act('Marked unread', () => api.updateMessage(last.id, read: false));
+        await _act('Marked unread', () => api.updateMessage(_lastReceived(t).id, read: false));
       case 3:
         _compose(ComposeKind.forward, last);
       case 4:
         await _act(
           spam ? 'Moved to Inbox' : 'Moved to Spam',
-          () => _each(t, (m) => api.updateMessage(m.id, labels: [spam ? 'inbox' : 'spam'])),
+          () => spam ? api.updateThread(t.id, remove: ['spam'], archived: false) : api.updateThread(t.id, add: ['spam'], remove: ['inbox']),
         );
     }
   }
+
+  Message _lastReceived(MailThread t) => t.messages.lastWhere((m) => !m.outgoing, orElse: () => t.messages.last);
 
   @override
   Widget build(BuildContext context) {
@@ -115,17 +162,22 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
                 IconPress(
                   icon: LucideIcons.archive,
                   label: 'Archive',
-                  onTap: () => _act('Archived', () => _each(t, (m) => api.updateMessage(m.id, archived: true))),
+                  onTap: () =>
+                      _act('Archived', () => api.updateThread(t.id, archived: true), undo: () => api.updateThread(t.id, archived: false)),
                 ),
                 IconPress(
                   icon: LucideIcons.trash2,
                   label: 'Delete',
-                  onTap: () => _act('Moved to Trash', () => _each(t, (m) => api.updateMessage(m.id, labels: ['trash']))),
+                  onTap: () => _act(
+                    'Moved to Trash',
+                    () => api.updateThread(t.id, add: ['trash'], remove: ['inbox']),
+                    undo: () => api.updateThread(t.id, remove: ['trash'], archived: false),
+                  ),
                 ),
                 IconPress(
                   icon: LucideIcons.mail,
                   label: 'Mark unread',
-                  onTap: () => _act('Marked unread', () => api.updateMessage(t.messages.last.id, read: false)),
+                  onTap: () => _act('Marked unread', () => api.updateMessage(_lastReceived(t).id, read: false)),
                 ),
                 Builder(
                   builder: (anchor) => IconPress(icon: LucideIcons.ellipsisVertical, label: 'More', onTap: () => _menu(anchor, t)),
@@ -161,6 +213,14 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
                         onTap: () => _compose(ComposeKind.forward, t.messages.last),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Builder(
+                      builder: (anchor) => _ActionPill(
+                        icon: LucideIcons.smilePlus,
+                        semanticLabel: 'Add reaction',
+                        onTap: () => _react(anchor, t.messages.last),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -173,6 +233,8 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
     final heroId = widget.heroMessageId ?? last.id;
     final labels = {for (final l in ref.watch(labelsProvider).value ?? <MailLabel>[]) l.id: l.name};
     final api = ref.read(mailRepositoryProvider).api;
+    final pending = ref.watch(pendingReactionsProvider);
+    final starred = t.messages.any((m) => m.starred);
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
@@ -208,11 +270,11 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
               ),
               IconPress(
                 icon: LucideIcons.star,
-                label: last.starred ? 'Remove star' : 'Add star',
-                color: last.starred ? AppColors.found : AppColors.inkSoft,
+                label: starred ? 'Remove star' : 'Add star',
+                color: starred ? AppColors.found : AppColors.inkSoft,
                 onTap: () async {
                   Feel.turn.ring();
-                  await api.updateMessage(last.id, starred: !last.starred);
+                  await api.updateThread(t.id, starred: !starred);
                   ref.invalidate(threadProvider(widget.threadId));
                   ref.invalidate(inboxProvider);
                 },
@@ -227,8 +289,14 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
               message: m,
               heroAvatar: m.id == heroId,
               expanded: m.id == last.id || !m.read || _expanded.contains(m.id),
+              reactions: groupedReactions(m, pending[m.id] ?? const []),
+              fresh: {
+                for (final r in pending[m.id] ?? const <Reaction>[])
+                  if (!m.reactions.any((x) => x.mine && x.emoji == r.emoji)) r.emoji,
+              },
               onToggle: () => setState(() => _expanded.contains(m.id) ? _expanded.remove(m.id) : _expanded.add(m.id)),
               onReply: () => _compose(ComposeKind.reply, m),
+              onReact: (anchor) => _react(anchor, m),
               onMore: (anchor) async {
                 final picked = await showGooMenu(anchor, const [
                   GooMenuItem(label: 'Reply all', icon: LucideIcons.replyAll),
@@ -255,16 +323,22 @@ class _MessageCard extends StatefulWidget {
   const _MessageCard({
     required this.message,
     required this.expanded,
+    required this.reactions,
+    required this.fresh,
     required this.onToggle,
     required this.onReply,
+    required this.onReact,
     required this.onMore,
     required this.heroAvatar,
   });
   final Message message;
   final bool expanded;
+  final List<(String, List<Reaction>)> reactions;
+  final Set<String> fresh;
   final bool heroAvatar;
   final VoidCallback onToggle;
   final VoidCallback onReply;
+  final ValueChanged<BuildContext> onReact;
   final ValueChanged<BuildContext> onMore;
 
   @override
@@ -351,6 +425,10 @@ class _MessageCardState extends State<_MessageCard> {
                       ),
                     ),
                     if (expanded) ...[
+                      Builder(
+                        builder: (anchor) =>
+                            IconPress(icon: LucideIcons.smilePlus, label: 'Add reaction', size: 22, onTap: () => widget.onReact(anchor)),
+                      ),
                       IconPress(icon: LucideIcons.reply, label: 'Reply', size: 22, onTap: widget.onReply),
                       Builder(
                         builder: (anchor) =>
@@ -413,6 +491,16 @@ class _MessageCardState extends State<_MessageCard> {
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: Wrap(spacing: 8, runSpacing: 8, children: [for (final a in m.attachments) AttachmentChip(attachment: a)]),
                 ),
+              if (widget.reactions.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: ReactionChips(
+                    groups: widget.reactions,
+                    fresh: widget.fresh,
+                    onAdd: widget.onReact,
+                    onOpen: () => showReactors(context, widget.reactions),
+                  ),
+                ),
               const SizedBox(height: 10),
             ],
           ],
@@ -446,15 +534,16 @@ class _Detail extends StatelessWidget {
 }
 
 class _ActionPill extends StatelessWidget {
-  const _ActionPill({required this.icon, this.label, required this.onTap});
+  const _ActionPill({required this.icon, this.label, this.semanticLabel, required this.onTap});
   final IconData icon;
   final String? label;
+  final String? semanticLabel;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => PaperPress(
     onTap: onTap,
-    semanticLabel: label ?? 'Reply',
+    semanticLabel: label ?? semanticLabel ?? 'Reply',
     washRadius: 26,
     child: Container(
       height: 52,

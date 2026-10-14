@@ -1,17 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { register } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 
-import worker from '../src/index.js';
+import PostalMime from 'postal-mime';
+
+register(`data:text/javascript,${encodeURIComponent(`
+  export async function resolve(specifier, context, next) {
+    if (specifier !== 'cloudflare:email') return next(specifier, context);
+    const stub = 'export class EmailMessage { constructor(from, to, raw) { Object.assign(this, { from, to, raw }); } }';
+    return { url: 'data:text/javascript,' + encodeURIComponent(stub), shortCircuit: true };
+  }`)}`);
+
+const { default: worker } = await import('../src/index.js');
 import { createDb } from '../src/db.js';
 import { receive } from '../src/inbound.js';
 import { send } from '../src/send.js';
-import { listMessages, getThread } from '../src/mail.js';
+import { listMessages, getThread, patchThread } from '../src/mail.js';
 import { listLabels } from '../src/labels.js';
 import { registerDevice, act } from '../src/push.js';
 import { routeHere } from '../src/routing.js';
+import { react } from '../src/reactions.js';
 
 crypto.subtle.timingSafeEqual ??= (a, b) => timingSafeEqual(a, b);
 
@@ -72,13 +83,15 @@ const waits = [];
 const ctx = { waitUntil: (p) => waits.push(p) };
 
 let tick = 0;
-async function arrive(envelopeTo, { from, to, cc, subject, body, id = `<m${++tick}@ext.com>`, inReplyTo }) {
+async function arrive(envelopeTo, { from, to, cc, subject, body, id = `<m${++tick}@ext.com>`, inReplyTo, at = Date.now() + ++tick * 1000 }) {
   const headers = [`From: ${from}`, `To: ${to}`, cc && `Cc: ${cc}`, `Subject: ${subject}`, `Message-ID: ${id}`,
-    inReplyTo && `In-Reply-To: ${inReplyTo}`, `Date: ${new Date(Date.now() + ++tick * 1000).toUTCString()}`];
+    inReplyTo && `In-Reply-To: ${inReplyTo}`, `Date: ${new Date(at).toUTCString()}`];
   await receive({ raw: `${headers.filter(Boolean).join('\r\n')}\r\n\r\n${body}`, to: envelopeTo, from }, env, ctx);
   await Promise.all(waits.splice(0));
 }
 const req = (body) => ({ json: async () => body, headers: new Headers() });
+const rows = async (mailbox, label = 'inbox') =>
+  (await listMessages({ db, mailbox, url: new URL(`https://w.dev/messages?label=${label}`) })).messages;
 const list = async (mailbox, label = 'inbox', q = '') =>
   (await listMessages({ db, mailbox, url: new URL(`https://w.dev/messages?label=${label}${q}`) })).messages.map(
     (m) => `${m.direction}:${m.subject}:${m.threadCount}`,
@@ -107,7 +120,7 @@ test('each address sees and is notified about its own mail only', async () => {
   assert.deepEqual(sentTo(), ['admin@bw.ng>phone-admin quiet']);
 
   assert.deepEqual(await list('nat@bw.ng'), ['in:Lease:1']);
-  assert.deepEqual(await list('nat@bw.ng', 'sent'), ['out:Memo:1', 'out:Visit:1']);
+  assert.deepEqual((await list('nat@bw.ng', 'sent')).sort(), ['out:Memo:1', 'out:Visit:1']);
   assert.deepEqual(await list('admin@bw.ng'), ['in:Lease:1', 'in:Application:1', 'in:Memo:1']);
   assert.deepEqual(await list('admin@bw.ng', 'sent'), []);
   assert.deepEqual(await list('info@bw.ng', 'all'), []);
@@ -142,11 +155,11 @@ test('each address sees and is notified about its own mail only', async () => {
     env,
     ctx,
   );
-  assert.deepEqual((await res.json()).messages.map((m) => m.subject), ['Memo', 'Visit']);
+  assert.deepEqual((await res.json()).messages.map((m) => m.subject).sort(), ['Memo', 'Visit']);
 
   sqlite.exec('DELETE FROM message_owners');
   sqlite.exec(schema);
-  assert.deepEqual(await list('nat@bw.ng', 'sent'), ['out:Memo:1', 'out:Visit:2']);
+  assert.deepEqual((await list('nat@bw.ng', 'sent')).sort(), ['out:Memo:1', 'out:Visit:2']);
 });
 
 test('addresses used in the app are routed to the worker unless they already have a rule', async () => {
@@ -171,4 +184,93 @@ test('addresses used in the app are routed to the worker unless they already hav
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test('lists show one row per conversation and act on all of it', async () => {
+  await registerDevice({ env, db, ctx, req: req({ addresses: ['amy@bw.ng'] }), params: { id: 'phone-amy' } });
+  await arrive('amy@bw.ng', { from: 'Kofi <kofi@x.com>', to: 'amy@bw.ng', subject: 'Plan', body: 'Draft plan', id: '<plan@x.com>' });
+  const mine = await send({ env, db, ctx, mailbox: 'amy@bw.ng', req: req({ from: 'amy@bw.ng', fromName: 'Amy', to: ['kofi@x.com'], subject: 'Re: Plan', text: 'Looks good', inReplyTo: '<plan@x.com>' }) });
+  await arrive('amy@bw.ng', { from: 'Kofi <kofi@x.com>', to: 'amy@bw.ng', subject: 'Re: Plan', body: 'Thanks', inReplyTo: mine.messageIdHeader });
+
+  const [row] = await rows('amy@bw.ng');
+  assert.equal((await rows('amy@bw.ng')).length, 1);
+  assert.deepEqual([row.subject, row.threadCount, row.read], ['Re: Plan', 3, false]);
+  assert.deepEqual(row.participants.map((p) => [p.name, p.me]).sort(), [['Amy', true], ['Kofi', false]]);
+
+  const change = (body) => patchThread({ db, mailbox: 'amy@bw.ng', req: req(body), params: { id: row.threadId } });
+  await change({ archived: true });
+  assert.deepEqual(await list('amy@bw.ng'), []);
+  assert.deepEqual(await list('amy@bw.ng', 'sent'), ['out:Re: Plan:3']);
+  await change({ archived: false });
+  await change({ add: ['trash'] });
+  assert.deepEqual([await list('amy@bw.ng'), await list('amy@bw.ng', 'trash')], [[], ['in:Re: Plan:3']]);
+  await change({ remove: ['trash'] });
+  await change({ starred: true, read: true });
+  assert.deepEqual([await list('amy@bw.ng'), await list('amy@bw.ng', 'starred')], [['in:Re: Plan:3'], ['in:Re: Plan:3']]);
+  assert.equal((await rows('amy@bw.ng'))[0].read, true);
+  await change({ starred: false });
+  assert.deepEqual(await list('amy@bw.ng', 'starred'), []);
+});
+
+test('Gmail reactions land on the message, and ours are sent the way Gmail reads them', async () => {
+  const sent = await db.first("SELECT * FROM messages WHERE subject = 'Re: Plan' AND direction = 'out'");
+  const before = (await db.first('SELECT count(*) AS n FROM messages')).n;
+  const reaction = [
+    'From: Kofi <kofi@x.com>', 'To: amy@bw.ng', 'Subject: Re: Plan', 'Message-ID: <react@x.com>', `In-Reply-To: ${sent.message_id_header}`,
+    'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="b"', '',
+    '--b', 'Content-Type: text/plain; charset="UTF-8"', '', '🎉', '', 'Kofi reacted via Gmail',
+    '--b', 'Content-Type: text/vnd.google.email-reaction+json; charset="UTF-8"', '', '{"emoji":"🎉","version":1}',
+    '--b', 'Content-Type: text/html; charset="UTF-8"', '', '<p>🎉</p>', '--b--', '',
+  ].join('\r\n');
+  await receive({ raw: reaction, to: 'amy@bw.ng', from: 'kofi@x.com' }, env, ctx);
+  await Promise.all(waits.splice(0));
+  assert.equal((await db.first('SELECT count(*) AS n FROM messages')).n, before);
+  assert.equal(pushes.at(-1).data.kind, 'reaction');
+  const thread = await getThread({ db, mailbox: 'amy@bw.ng', params: { id: sent.thread_id } });
+  assert.deepEqual(thread.messages.find((m) => m.id === sent.id).reactions.map((r) => [r.emoji, r.name, r.mine]), [['🎉', 'Kofi', false]]);
+
+  const mails = [];
+  const original = env.EMAIL.send;
+  env.EMAIL.send = async (m) => mails.push(m);
+  try {
+    const kofi = thread.messages.at(-1);
+    const out = await react({ env, db, mailbox: 'amy@bw.ng', req: req({ emoji: '👍', fromName: 'Amy' }), params: { id: kofi.id } });
+    assert.deepEqual(out.reactions.map((r) => [r.emoji, r.mine]), [['👍', true]]);
+    assert.deepEqual(mails.map((m) => [m.from, m.to]), [['amy@bw.ng', 'kofi@x.com']]);
+    const parsed = await PostalMime.parse(mails[0].raw);
+    assert.equal(parsed.inReplyTo, kofi.messageIdHeader);
+    const order = ['text/plain', 'text/vnd.google.email-reaction+json', 'text/html'].map((t) => mails[0].raw.indexOf(`Content-Type: ${t}`));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+    const part = parsed.attachments.find((a) => a.mimeType === 'text/vnd.google.email-reaction+json');
+    assert.deepEqual(JSON.parse(new TextDecoder().decode(part.content)), { emoji: '👍', version: 1 });
+    await assert.rejects(react({ env, db, mailbox: 'amy@bw.ng', req: req({ emoji: '👍👍' }), params: { id: kofi.id } }), { status: 400 });
+  } finally {
+    env.EMAIL.send = original;
+  }
+});
+
+test('a notification can reply inline with a token for that mailbox only', async () => {
+  const push = pushes.findLast((p) => p.data.kind === 'mail' && p.data.account === 'amy@bw.ng');
+  const { token, threadId, messageId } = push.data;
+  assert.match(token, /^[0-9a-z]+\.[\w-]+$/);
+  const reply = (body) => act({ env, db, ctx, req: req(body), params: { thread: threadId, action: 'reply' } });
+  await assert.rejects(reply({ token, address: 'nat@bw.ng', text: 'hi' }), { status: 403 });
+  await assert.rejects(reply({ token: `1.${token.split('.')[1]}`, address: 'amy@bw.ng', text: 'hi' }), { status: 403 });
+  await reply({ token, address: 'amy@bw.ng', text: 'On it', messageId });
+  const sent = (await getThread({ db, mailbox: 'amy@bw.ng', params: { id: threadId } })).messages.find((m) => m.text === 'On it');
+  const answered = await db.first('SELECT message_id_header FROM messages WHERE id = ?', messageId);
+  assert.deepEqual([sent.direction, sent.from.name, sent.inReplyTo], ['out', 'Amy', answered.message_id_header]);
+});
+
+test('my reply brings its conversation back to the top of the inbox, showing what I wrote', async () => {
+  const hour = Date.now() - 3_600_000;
+  await arrive('zed@bw.ng', { from: 'Ola <ola@x.com>', to: 'zed@bw.ng', subject: 'Lunch', body: 'Free today?', id: '<lunch@x.com>', at: hour });
+  await arrive('zed@bw.ng', { from: 'Bisi <bisi@x.com>', to: 'zed@bw.ng', subject: 'Report', body: 'See attached', at: hour + 60_000 });
+  const before = await rows('zed@bw.ng');
+  assert.deepEqual(before.map((m) => m.subject), ['Report', 'Lunch']);
+  await send({ env, db, ctx, mailbox: 'zed@bw.ng', req: req({ from: 'zed@bw.ng', fromName: 'Zed', to: ['ola@x.com'], subject: 'Re: Lunch', text: 'Yes, 1pm', inReplyTo: '<lunch@x.com>' }) });
+  const after = await rows('zed@bw.ng');
+  assert.deepEqual(after.map((m) => [m.subject, m.direction, m.snippet, m.threadCount]), [['Re: Lunch', 'out', 'Yes, 1pm', 2], ['Report', 'in', 'See attached', 1]]);
+  assert.deepEqual(after[0].participants.map((p) => [p.name, p.me]), [['Ola', false], ['Zed', true]]);
+  assert.deepEqual(await list('zed@bw.ng', 'sent'), ['out:Re: Lunch:2']);
 });

@@ -26,6 +26,29 @@ Map<String, dynamic> _$AttachmentToJson(Attachment instance) => <String, dynamic
   'contentId': instance.contentId,
 };
 
+Participant _$ParticipantFromJson(Map<String, dynamic> json) =>
+    Participant(address: json['address'] as String, name: json['name'] as String? ?? '', me: json['me'] as bool? ?? false);
+
+Map<String, dynamic> _$ParticipantToJson(Participant instance) => <String, dynamic>{
+  'address': instance.address,
+  'name': instance.name,
+  'me': instance.me,
+};
+
+Reaction _$ReactionFromJson(Map<String, dynamic> json) => Reaction(
+  emoji: json['emoji'] as String,
+  address: json['address'] as String? ?? '',
+  name: json['name'] as String? ?? '',
+  mine: json['mine'] as bool? ?? false,
+);
+
+Map<String, dynamic> _$ReactionToJson(Reaction instance) => <String, dynamic>{
+  'emoji': instance.emoji,
+  'address': instance.address,
+  'name': instance.name,
+  'mine': instance.mine,
+};
+
 Message _$MessageFromJson(Map<String, dynamic> json) => Message(
   id: json['id'] as String,
   threadId: json['threadId'] as String,
@@ -46,6 +69,8 @@ Message _$MessageFromJson(Map<String, dynamic> json) => Message(
   text: json['text'] as String?,
   messageIdHeader: json['messageIdHeader'] as String?,
   attachments: (json['attachments'] as List<dynamic>?)?.map((e) => Attachment.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
+  participants: (json['participants'] as List<dynamic>?)?.map((e) => Participant.fromJson(e as Map<String, dynamic>)).toList() ?? [],
+  reactions: (json['reactions'] as List<dynamic>?)?.map((e) => Reaction.fromJson(e as Map<String, dynamic>)).toList() ?? [],
 );
 
 Map<String, dynamic> _$MessageToJson(Message instance) => <String, dynamic>{
@@ -68,6 +93,8 @@ Map<String, dynamic> _$MessageToJson(Message instance) => <String, dynamic>{
   'text': instance.text,
   'messageIdHeader': instance.messageIdHeader,
   'attachments': instance.attachments.map((e) => e.toJson()).toList(),
+  'participants': instance.participants.map((e) => e.toJson()).toList(),
+  'reactions': instance.reactions.map((e) => e.toJson()).toList(),
 };
 
 MailThread _$MailThreadFromJson(Map<String, dynamic> json) => MailThread(

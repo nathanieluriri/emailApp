@@ -29,6 +29,40 @@ class Attachment {
   Map<String, dynamic> toJson() => _$AttachmentToJson(this);
 }
 
+/// Someone who wrote in a conversation, in the order they first wrote.
+@JsonSerializable()
+class Participant {
+  const Participant({required this.address, this.name = '', this.me = false});
+  final String address;
+  @JsonKey(defaultValue: '')
+  final String name;
+  @JsonKey(defaultValue: false)
+  final bool me;
+
+  String get display => name.isNotEmpty ? name : address;
+  String get short => me ? 'me' : display.split(RegExp(r'[\s@]')).first;
+
+  factory Participant.fromJson(Map<String, dynamic> json) => _$ParticipantFromJson(json);
+  Map<String, dynamic> toJson() => _$ParticipantToJson(this);
+}
+
+@JsonSerializable()
+class Reaction {
+  const Reaction({required this.emoji, this.address = '', this.name = '', this.mine = false});
+  final String emoji;
+  @JsonKey(defaultValue: '')
+  final String address;
+  @JsonKey(defaultValue: '')
+  final String name;
+  @JsonKey(defaultValue: false)
+  final bool mine;
+
+  String get who => mine ? 'You' : (name.isNotEmpty ? name : address);
+
+  factory Reaction.fromJson(Map<String, dynamic> json) => _$ReactionFromJson(json);
+  Map<String, dynamic> toJson() => _$ReactionToJson(this);
+}
+
 @JsonSerializable(explicitToJson: true)
 class Message {
   const Message({
@@ -51,6 +85,8 @@ class Message {
     this.text,
     this.messageIdHeader,
     this.attachments = const [],
+    this.participants = const [],
+    this.reactions = const [],
   });
 
   final String id;
@@ -74,11 +110,15 @@ class Message {
   final String? text;
   final String? messageIdHeader;
   final List<Attachment> attachments;
+  @JsonKey(defaultValue: [])
+  final List<Participant> participants;
+  @JsonKey(defaultValue: [])
+  final List<Reaction> reactions;
 
   bool get outgoing => direction == 'out';
   DateTime get sentAt => DateTime.fromMillisecondsSinceEpoch(date);
 
-  Message copyWith({bool? read, bool? starred, bool? archived, List<String>? labels}) => Message(
+  Message copyWith({bool? read, bool? starred, bool? archived, List<String>? labels, List<Reaction>? reactions}) => Message(
     id: id,
     threadId: threadId,
     direction: direction,
@@ -98,6 +138,8 @@ class Message {
     text: text,
     messageIdHeader: messageIdHeader,
     attachments: attachments,
+    participants: participants,
+    reactions: reactions ?? this.reactions,
   );
 
   factory Message.fromJson(Map<String, dynamic> json) => _$MessageFromJson(json);

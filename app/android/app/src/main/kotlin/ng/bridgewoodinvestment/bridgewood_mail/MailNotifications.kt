@@ -17,7 +17,9 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.app.RemoteInput
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.drawable.IconCompat
 import org.json.JSONObject
@@ -27,6 +29,8 @@ object MailNotifications {
     const val ACTION_ARCHIVE = "quirepost.ARCHIVE"
     const val ACTION_READ = "quirepost.READ"
     const val ACTION_REPLY = "quirepost.REPLY"
+    const val ACTION_COMPOSE = "quirepost.COMPOSE"
+    const val KEY_TEXT = "text"
 
     // Same colours, order and hash as Avatar in lib/core/widgets.dart, so a sender keeps one colour everywhere.
     private val palette = longArrayOf(0xFF4285F4, 0xFF21A366, 0xFFF5C518, 0xFFE8544A, 0xFFB39DDB, 0xFFC9832B, 0xFF4F378B)
@@ -78,19 +82,35 @@ object MailNotifications {
             .setSilent(data.optInt("quiet") == 1)
             .setStyle(if (lines.size > 1) conversation(context, subject, lines) else letter(subject, latest.text))
 
+        // Only new mail carries a token, so reactions and test pushes get no buttons.
         if (data.has("token")) {
-            builder.addAction(R.drawable.ic_stat_onesignal_default, "Archive", broadcast(context, ACTION_ARCHIVE, id, data))
-            builder.addAction(R.drawable.ic_stat_onesignal_default, "Mark as read", broadcast(context, ACTION_READ, id, data))
-        }
-        if (data.optString("kind") == "mail") {
-            val reply = intent(context, MainActivity::class.java, ACTION_REPLY, id, data).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            builder.addAction(
-                R.drawable.ic_stat_onesignal_default,
-                "Reply",
-                PendingIntent.getActivity(context, id, reply, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
-            )
+            builder.addAction(quick(context, "Archive", ACTION_ARCHIVE, NotificationCompat.Action.SEMANTIC_ACTION_ARCHIVE, id, data))
+            builder.addAction(quick(context, "Mark as read", ACTION_READ, NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ, id, data))
+            builder.addAction(reply(context, id, data))
         }
         return builder
+    }
+
+    // Replaces a notification whose inline reply failed, keeping what was typed; a tap opens it in the composer.
+    fun replyFailed(context: Context, id: Int, extras: Intent, text: String) {
+        val compose = Intent(context, MainActivity::class.java)
+            .setAction(ACTION_COMPOSE)
+            .setData(Uri.parse("quirepost://notification/$id/$ACTION_COMPOSE"))
+            .putExtras(extras)
+            .putExtra(KEY_TEXT, text)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val notification = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_onesignal_default)
+            .setColor(accent(context))
+            .setContentTitle("Reply not sent")
+            .setContentText(text)
+            .setSubText(extras.getStringExtra("account"))
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Tap to send it from Quirepost.\n\n$text"))
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setContentIntent(PendingIntent.getActivity(context, id, compose, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(id, notification) }
     }
 
     fun dismiss(context: Context, id: Int) {
@@ -166,12 +186,29 @@ object MailNotifications {
         Typeface.createFromAsset(context.assets, "flutter_assets/assets/fonts/Inter-SemiBold.ttf")
     }.getOrDefault(Typeface.DEFAULT_BOLD).also { inter = it }
 
-    private fun broadcast(context: Context, action: String, id: Int, data: JSONObject): PendingIntent = PendingIntent.getBroadcast(
-        context,
-        id,
-        intent(context, MailActionReceiver::class.java, action, id, data),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
+    private fun quick(context: Context, title: String, action: String, semantic: Int, id: Int, data: JSONObject) =
+        NotificationCompat.Action.Builder(R.drawable.ic_stat_onesignal_default, title, broadcast(context, action, id, data, mutable = false))
+            .setSemanticAction(semantic)
+            .setShowsUserInterface(false)
+            .build()
+
+    // Phones that suggest replies (Android 10 and later) add them as chips above the reply field.
+    private fun reply(context: Context, id: Int, data: JSONObject) =
+        NotificationCompat.Action.Builder(R.drawable.ic_stat_onesignal_default, "Reply", broadcast(context, ACTION_REPLY, id, data, mutable = true))
+            .addRemoteInput(RemoteInput.Builder(KEY_TEXT).setLabel("Reply").build())
+            .setAllowGeneratedReplies(true)
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+            .setShowsUserInterface(false)
+            .build()
+
+    // The reply's PendingIntent must be mutable so the system can attach the typed text.
+    private fun broadcast(context: Context, action: String, id: Int, data: JSONObject, mutable: Boolean): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            id,
+            intent(context, MailActionReceiver::class.java, action, id, data),
+            PendingIntent.FLAG_UPDATE_CURRENT or if (mutable) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE,
+        )
 
     private fun intent(context: Context, target: Class<*>, action: String, id: Int, data: JSONObject) =
         Intent(context, target)

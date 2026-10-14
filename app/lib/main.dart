@@ -16,6 +16,11 @@ Future<void> main() async {
     for (final font in ['Inter', 'Quicksand']) {
       yield LicenseEntryWithLineBreaks([font], await rootBundle.loadString('assets/fonts/OFL-$font.txt'));
     }
+    yield const LicenseEntryWithLineBreaks(
+      ['Noto Emoji Animation'],
+      'Animated emoji by Google, https://googlefonts.github.io/noto-emoji-animation/\n'
+      'Licensed under CC BY 4.0, https://creativecommons.org/licenses/by/4.0/legalcode',
+    );
   });
   final prefs = await SharedPreferences.getInstance();
   await PushService.init();

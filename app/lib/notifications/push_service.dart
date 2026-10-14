@@ -23,6 +23,7 @@ class PushEvent {
     this.account,
     this.quiet = false,
     this.action = PushAction.open,
+    this.text,
     required this.opened,
   });
 
@@ -35,6 +36,9 @@ class PushEvent {
   final String? account;
   final bool quiet;
   final PushAction action;
+
+  /// A reply typed in a notification that could not be sent, to finish in the composer.
+  final String? text;
   final bool opened;
 }
 
@@ -129,7 +133,7 @@ abstract final class PushService {
     final mail = data['kind'] == 'mail';
     return PushEvent(
       host: data['host'] as String?,
-      threadId: mail ? data['threadId'] as String? : null,
+      threadId: mail || data['kind'] == 'reaction' ? data['threadId'] as String? : null,
       messageId: mail ? data['messageId'] as String? : null,
       sender: latest?['from'] as String? ?? n.title,
       subject: data['subject'] as String? ?? n.body,
@@ -146,6 +150,7 @@ abstract final class PushService {
     threadId: launch['threadId'] as String?,
     messageId: launch['messageId'] as String?,
     action: launch['action'] == 'reply' ? PushAction.reply : PushAction.open,
+    text: launch['text'] as String?,
     opened: true,
   );
 

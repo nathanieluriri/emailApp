@@ -99,7 +99,10 @@ export async function send({ env, db, req, mailbox, ctx }) {
 export async function reply({ env, db, req, params, mailbox, ctx }) {
   const orig = await db.first('SELECT * FROM messages WHERE id = ?', params.id);
   if (!orig) fail(404, 'message not found');
-  const b = await req.json();
+  return replyTo(env, db, orig, await req.json(), mailbox, ctx);
+}
+
+export function replyTo(env, db, orig, b, mailbox, ctx) {
   const incoming = orig.direction === 'in';
   const own = (r) => r.address.toLowerCase().endsWith(`@${env.ALLOWED_DOMAIN.toLowerCase()}`);
   const to = b.to?.length ? b.to : incoming ? [{ address: orig.from_addr, name: orig.from_name || '' }] : parseJson(orig.to_json, []);

@@ -125,3 +125,12 @@ INSERT OR IGNORE INTO message_owners (message_id, address, role)
 INSERT OR IGNORE INTO message_owners (message_id, address, role)
   SELECT m.id, lower(json_extract(r.value, '$.address')), 'to'
   FROM messages m, json_each(m.cc_json) r WHERE m.direction = 'in' AND json_extract(r.value, '$.address') IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS reactions (
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  address TEXT NOT NULL,
+  name TEXT,
+  emoji TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (message_id, address, emoji)
+);

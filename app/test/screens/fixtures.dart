@@ -19,14 +19,20 @@ Map<String, dynamic> message(
   bool attachment = false,
   String direction = 'in',
   String? text,
+  Map<String, Object>? to,
+  List<Map<String, Object>>? participants,
+  List<Map<String, Object>>? reactions,
 }) => {
   'id': id,
   'threadId': 't$id',
   'direction': direction,
   'from': {'address': address, 'name': name},
   'to': [
-    {'address': 'admin@bridgewoodinvestment.ng', 'name': 'Bridgewood'},
+    to ?? {'address': 'admin@bridgewoodinvestment.ng', 'name': 'Bridgewood'},
   ],
+  'messageIdHeader': '<$id@example.ng>',
+  'participants': ?participants,
+  'reactions': ?reactions,
   'subject': subject,
   'snippet': snippet,
   'date': _ago(minutesAgo),
@@ -72,6 +78,10 @@ final inbox = [
     read: true,
     starred: true,
     count: 3,
+    participants: [
+      {'address': 'adaeze@okaforlegal.ng', 'name': 'Adaeze Okafor'},
+      {'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri', 'me': true},
+    ],
   ),
   message(
     '4',
@@ -137,6 +147,11 @@ final thread = {
       140,
       read: true,
       attachment: true,
+      to: {'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri'},
+      reactions: [
+        {'emoji': '🎉', 'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri', 'mine': true},
+        {'emoji': '💖', 'address': 'info@bridgewoodinvestment.ng', 'name': 'Bridgewood Info'},
+      ],
       text: 'Hi Nathaniel,\n\nI have added comments to clauses 4 and 7. The rest reads well. Can we close this by Friday?\n\nBest,\nAdaeze\n\nOn Tue, 13 Oct 2026, Bridgewood <admin@bridgewoodinvestment.ng> wrote:\n> Thanks, reviewing now.',
     ),
   ],
@@ -179,6 +194,11 @@ class FakeWorker implements HttpClientAdapter {
       ],
       '/templates' => [],
       _ when path.startsWith('/threads/') => thread,
+      _ when path.endsWith('/react') => {
+        'reactions': [
+          {'emoji': (options.data as Map)['emoji'], 'mine': true},
+        ],
+      },
       _ => {'ok': true},
     };
     return ResponseBody.fromString(

@@ -162,6 +162,8 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     final t = widget.args.template;
     if (t != null) _applyTemplate(t);
     _applyKind();
+    final text = widget.args.text;
+    if (text != null && text.isNotEmpty) _body.quill.document.insert(0, text);
   }
 
   void _applyKind() {

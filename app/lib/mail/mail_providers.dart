@@ -76,21 +76,19 @@ class InboxController extends AsyncNotifier<InboxState> {
   Future<void> toggleStar(Message m) async {
     _replace(m.copyWith(starred: !m.starred));
     try {
-      await _repo.api.updateMessage(m.id, starred: !m.starred);
+      await _repo.api.updateThread(m.threadId, starred: !m.starred);
     } catch (_) {
       _replace(m);
       rethrow;
     }
   }
 
-  void markRead(String id) {
-    final m = state.value?.messages.where((x) => x.id == id).firstOrNull;
+  void markThreadRead(String threadId) {
+    final m = state.value?.messages.where((x) => x.threadId == threadId).firstOrNull;
     if (m != null && !m.read) _replace(m.copyWith(read: true));
   }
 
-  Future<void> archive(Message m) => _drop(m, () => _repo.api.updateMessage(m.id, archived: true));
-
-  Future<void> moveTo(Message m, List<String> labels) => _drop(m, () => _repo.api.updateMessage(m.id, labels: labels));
+  Future<void> archive(Message m) => _drop(m, () => _repo.api.updateThread(m.threadId, archived: true));
 
   Future<void> _drop(Message m, Future<void> Function() action) async {
     final before = state.value;
@@ -103,8 +101,8 @@ class InboxController extends AsyncNotifier<InboxState> {
     }
   }
 
-  Future<void> restore(Message m) async {
-    await _repo.api.updateMessage(m.id, labels: m.labels, archived: m.archived);
+  Future<void> unarchive(Message m) async {
+    await _repo.api.updateThread(m.threadId, archived: false);
     await refresh();
   }
 }

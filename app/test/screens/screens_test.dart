@@ -144,6 +144,21 @@ void main() {
       await _shot(tester, 'thread_menu_$mode');
     });
 
+    testWidgets('reactions $mode', (tester) async {
+      final c = await boot(tester, theme: theme);
+      c.read(routerProvider).push('/thread/t3?hero=3');
+      await settle(tester);
+      await tester.tap(find.bySemanticsLabel('Add reaction').last);
+      await settle(tester);
+      await _shot(tester, 'reaction_bar_$mode');
+      await tester.tap(find.bySemanticsLabel('React with 😂'));
+      await settle(tester);
+      await _shot(tester, 'reacted_$mode');
+      await tester.pump(const Duration(seconds: 5));
+      await settle(tester);
+      expect(find.bySemanticsLabel('😂 1'), findsOneWidget);
+    });
+
     testWidgets('compose $mode', (tester) async {
       final c = await boot(tester, theme: theme);
       c.read(routerProvider).push('/compose');
@@ -181,7 +196,7 @@ void main() {
       await settle(tester);
       await tester.tap(find.text('Sent'));
       await settle(tester);
-      await tester.tap(find.text('Tunde Bakare'));
+      await tester.tap(find.text('Site visit on Thursday'));
       await settle(tester);
       expect(c.read(routerProvider).state.matchedLocation, startsWith('/thread/'));
     });

@@ -1,5 +1,6 @@
 import { fail } from './http.js';
 import { routeHere } from './routing.js';
+import { replyTo } from './send.js';
 
 const QUIET_MS = 60_000;
 const EARLIER_LINES = 3;
@@ -13,10 +14,26 @@ async function hostOf(env, db) {
   return env.PUBLIC_HOST || (await db.first("SELECT value FROM meta WHERE key = 'host'"))?.value;
 }
 
-async function sign(env, threadId, address) {
+const TOKEN_DAYS = 30;
+
+async function mac(env, text) {
   const key = await crypto.subtle.importKey('raw', enc.encode(`actions:${env.API_KEYS}`), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(`${threadId}\n${address}`)));
-  return btoa(String.fromCharCode(...mac.slice(0, 18))).replace(/\+/g, '-').replace(/\//g, '_');
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(text)));
+  return btoa(String.fromCharCode(...sig.slice(0, 18))).replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+// A notification's buttons act on one mailbox's copy of one conversation, for a month.
+async function sign(env, threadId, address) {
+  const expires = Math.floor(Date.now() / 1000 + TOKEN_DAYS * 86400).toString(36);
+  return `${expires}.${await mac(env, `${threadId}\n${address}\n${expires}`)}`;
+}
+
+async function verify(env, threadId, address, token) {
+  const [expires, sig] = String(token || '').split('.');
+  if (!expires || !sig || parseInt(expires, 36) * 1000 < Date.now()) return false;
+  const expected = enc.encode(await mac(env, `${threadId}\n${address}\n${expires}`));
+  const given = enc.encode(sig);
+  return given.byteLength === expected.byteLength && crypto.subtle.timingSafeEqual(given, expected);
 }
 
 const onesignal = (env, path, init = {}) =>
@@ -105,6 +122,24 @@ export async function notifyNewMail(env, db, id, addresses) {
   }
 }
 
+export async function notifyReaction(env, db, target, account, who, emoji) {
+  if (!env.ONESIGNAL_APP_ID || !env.ONESIGNAL_REST_KEY) return;
+  const devices = await db.all('SELECT device_id FROM device_mailboxes WHERE address = ?', account);
+  const host = devices.length && (await hostOf(env, db));
+  if (!host) return;
+  await send(env, {
+    ...toDevices(devices.map((d) => d.device_id)),
+    ...mailNotification({
+      host,
+      account,
+      kind: 'reaction',
+      quiet: true,
+      messages: [{ ...target, from_name: who, from_addr: '', snippet: `${emoji} reacted to "${clip(target.snippet, 90)}"`, date: Date.now() }],
+    }),
+    collapse_id: `r-${target.id}-${fnv(account)}`,
+  });
+}
+
 export async function registerDevice({ env, db, req, params, ctx }) {
   const { addresses = [], subscriptionId } = await req.json().catch(() => ({}));
   const list = [...new Set(addresses.map((a) => String(a).trim().toLowerCase()).filter(Boolean))];
@@ -152,13 +187,27 @@ export async function testPush({ env, db, req, url, mailbox }) {
   return { ok: true, id: out.id, linked };
 }
 
-export async function act({ env, db, req, params }) {
-  const { token, address = '' } = await req.json().catch(() => ({}));
-  const expected = enc.encode(await sign(env, params.thread, address));
-  const given = enc.encode(token || '');
-  if (given.byteLength !== expected.byteLength || !crypto.subtle.timingSafeEqual(given, expected)) fail(403, 'invalid token');
-  if (!['read', 'archive'].includes(params.action)) fail(404, 'unknown action');
+const asHtml = (text) =>
+  `<div>${text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]).replace(/\n/g, '<br>')}</div>`;
+
+export async function act({ env, db, req, params, ctx }) {
+  const { token, address = '', text = '', messageId } = await req.json().catch(() => ({}));
+  if (!(await verify(env, params.thread, address, token))) fail(403, 'invalid token');
+  if (!['read', 'archive', 'reply'].includes(params.action)) fail(404, 'unknown action');
   const mine = "id IN (SELECT message_id FROM message_owners WHERE address = ? AND role = 'to')";
+  if (params.action === 'reply') {
+    if (!text.trim()) fail(400, 'reply text is required');
+    const orig = await db.first(
+      `SELECT * FROM messages WHERE thread_id = ? AND ${mine} ${messageId ? 'AND id = ?' : ''} ORDER BY date DESC LIMIT 1`,
+      params.thread, address, ...(messageId ? [messageId] : []),
+    );
+    if (!orig) fail(404, 'message not found');
+    const named = await db.first(
+      "SELECT from_name FROM messages WHERE from_addr = ? AND direction = 'out' AND from_name IS NOT NULL ORDER BY date DESC LIMIT 1",
+      address,
+    );
+    await replyTo(env, db, orig, { from: address, fromName: named?.from_name || '', text: text.trim(), html: asHtml(text.trim()) }, address, ctx);
+  }
   const stmts = [[`UPDATE messages SET read = 1 WHERE thread_id = ? AND ${mine}`, params.thread, address]];
   if (params.action === 'archive') {
     stmts.push(
