@@ -43,7 +43,7 @@ npx wrangler secret put CF_API_TOKEN
 npx wrangler secret put ROUTING_KEYS   # optional: only these API keys may change routing
 ```
 
-`CF_ZONE_ID` is set in `wrangler.jsonc`.
+`CF_ZONE_ID` is set in `wrangler.jsonc`. On the live worker `CF_API_TOKEN` and the OneSignal secrets are already set.
 
 ### Email Service (sending)
 

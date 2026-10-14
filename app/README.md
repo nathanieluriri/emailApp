@@ -9,7 +9,7 @@ Requires Flutter 3.47+ (Dart 3.13).
 ```sh
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs   # json_serializable and drift code
-flutter run --dart-define=ONESIGNAL_APP_ID=<your OneSignal app id>
+flutter run   # OneSignal App ID is set in lib/core/config.dart; override with --dart-define=ONESIGNAL_APP_ID=...
 flutter analyze && flutter test
 ```
 
@@ -22,7 +22,7 @@ Push is required: new mail is pushed by the worker, and tapping a push opens the
 1. Create an app at onesignal.com.
 2. **Android:** in Firebase, create a project, add an Android app with package `ng.bridgewoodinvestment.bridgewood_mail`, download a service account JSON (Project settings, Service accounts) and upload it to OneSignal (Settings, Push and in-app, Google Android FCM).
 3. **iOS:** in the Apple developer portal create an APNs auth key (.p8), and upload it with the Key ID and Team ID to OneSignal (Apple iOS). In Xcode, open `ios/Runner.xcworkspace`, add the **Push Notifications** capability and **Background Modes** (Remote notifications, Background fetch, Background processing).
-4. Build with `--dart-define=ONESIGNAL_APP_ID=...` and set the same App ID plus a REST API key on the worker (`ONESIGNAL_APP_ID`, `ONESIGNAL_REST_KEY`).
+4. The App ID is in `lib/core/config.dart`. The worker holds the same App ID plus a REST API key (`ONESIGNAL_APP_ID`, `ONESIGNAL_REST_KEY`, already set).
 
 Devices are tagged `worker_host=<active account host>` and `wh_<host>=1` for every saved account; removing an account removes its tag.
 

@@ -1,7 +1,7 @@
 abstract final class AppConfig {
   static const workerSubdomain = 'uririnathaniel';
   static const defaultWorkerUrl = 'https://bridgewood-mail.$workerSubdomain.workers.dev';
-  static const oneSignalAppId = String.fromEnvironment('ONESIGNAL_APP_ID', defaultValue: 'REPLACE_WITH_ONESIGNAL_APP_ID');
+  static const oneSignalAppId = String.fromEnvironment('ONESIGNAL_APP_ID', defaultValue: 'a96bfc98-6997-42fc-8625-1ef053460c62');
   static const serviceName = 'bridgewood-mail';
   static const requiredRoutes = [
     'GET /health',
