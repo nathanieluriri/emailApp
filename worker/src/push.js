@@ -1,4 +1,5 @@
 import { fail } from './http.js';
+import { routeHere } from './routing.js';
 
 const QUIET_MS = 60_000;
 const EARLIER_LINES = 3;
@@ -112,6 +113,7 @@ export async function registerDevice({ env, db, req, params, ctx }) {
     ...list.map((a) => ['INSERT INTO device_mailboxes (device_id, address, updated_at) VALUES (?, ?, ?)', params.id, a, Date.now()]),
   ]);
   if (subscriptionId) ctx.waitUntil(pruneSubscriptions(env, params.id, subscriptionId).catch((e) => console.error('prune failed', e)));
+  ctx.waitUntil(routeHere(env, db, list).catch((e) => console.error('routing failed', e)));
   return { ok: true, addresses: list };
 }
 

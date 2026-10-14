@@ -111,6 +111,11 @@ CREATE TABLE IF NOT EXISTS device_mailboxes (
 );
 CREATE INDEX IF NOT EXISTS idx_device_mailboxes_address ON device_mailboxes(address);
 
+CREATE TABLE IF NOT EXISTS routed_addresses (
+  address TEXT PRIMARY KEY,
+  routed_at INTEGER NOT NULL
+);
+
 -- Gives mail stored before mailboxes existed to its sender and recipients.
 INSERT OR IGNORE INTO message_owners (message_id, address, role)
   SELECT id, lower(from_addr), 'from' FROM messages WHERE direction = 'out';
