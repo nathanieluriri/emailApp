@@ -103,13 +103,13 @@ CREATE TABLE IF NOT EXISTS message_owners (
 );
 CREATE INDEX IF NOT EXISTS idx_message_owners_message ON message_owners(message_id);
 
-CREATE TABLE IF NOT EXISTS devices (
-  subscription_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS device_mailboxes (
+  device_id TEXT NOT NULL,
   address TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
-  PRIMARY KEY (subscription_id, address)
+  PRIMARY KEY (device_id, address)
 );
-CREATE INDEX IF NOT EXISTS idx_devices_address ON devices(address);
+CREATE INDEX IF NOT EXISTS idx_device_mailboxes_address ON device_mailboxes(address);
 
 -- Gives mail stored before mailboxes existed to its sender and recipients.
 INSERT OR IGNORE INTO message_owners (message_id, address, role)

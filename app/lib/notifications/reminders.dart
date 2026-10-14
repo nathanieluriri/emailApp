@@ -31,10 +31,10 @@ abstract final class Reminders {
   static const _accent = Color(0xFF6750A4);
   static const _daily = NotificationDetails(
     android: AndroidNotificationDetails(
-      'reminders',
-      'Reminders',
-      channelDescription: 'A gentle nudge when unread mail is waiting',
-      importance: Importance.low,
+      'daily',
+      'Daily reminder',
+      channelDescription: 'A nudge once a day when unread mail is waiting',
+      importance: Importance.defaultImportance,
       color: _accent,
       category: AndroidNotificationCategory.reminder,
     ),
@@ -84,13 +84,14 @@ abstract final class Reminders {
     final lastCheck = prefs.getInt(_lastCheckKey) ?? now.millisecondsSinceEpoch;
     final pushed = (prefs.getStringList(PushService.pushIdsKey) ?? []).toSet();
     final pushOn = prefs.getBool(PushService.optedInKey) ?? false;
+    final linked = (prefs.getStringList(PushService.linkedKey) ?? const []).toSet();
     var unreadTotal = 0;
 
     for (final (i, account) in (await AccountsRepository().load()).indexed) {
       final page = await ApiClient(account.workerUrl, account.apiKey, mailbox: account.email).messages(unread: true);
       unreadTotal += page.messages.length;
       final fresh = page.messages.where((m) => m.date > lastCheck && !pushed.contains(m.id)).toList();
-      if (fresh.isEmpty || pushOn) continue;
+      if (fresh.isEmpty || (pushOn && linked.contains(account.email.toLowerCase()))) continue;
       final senders = fresh.map((m) => m.from.display).toSet().take(3).join(', ');
       final title = '${fresh.length} new email${fresh.length == 1 ? '' : 's'}';
       await notifications.show(
