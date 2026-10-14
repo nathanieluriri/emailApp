@@ -37,7 +37,12 @@ class _Accounts extends AccountsController {
   Future<AccountsState> build() async => AccountsState(accounts: accounts, activeId: accounts.firstOrNull?.id);
 }
 
-Future<ProviderContainer> _boot(WidgetTester tester, {required int theme, List<Account> accounts = const [_account, _second]}) async {
+Future<ProviderContainer> boot(
+  WidgetTester tester, {
+  required int theme,
+  List<Account> accounts = const [_account, _second],
+  bool settled = true,
+}) async {
   tester.view.physicalSize = const Size(1080, 2340);
   tester.view.devicePixelRatio = 2.75;
   addTearDown(tester.view.reset);
@@ -53,11 +58,13 @@ Future<ProviderContainer> _boot(WidgetTester tester, {required int theme, List<A
   );
   addTearDown(container.dispose);
   await tester.pumpWidget(UncontrolledProviderScope(container: container, child: const App()));
-  await _settle(tester);
+  if (settled) await settle(tester);
   return container;
 }
 
-Future<void> _settle(WidgetTester tester) async {
+Future<ProviderContainer> bootQuiet(WidgetTester tester) => boot(tester, theme: 2, settled: false);
+
+Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 12; i++) {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
     await tester.pump(const Duration(milliseconds: 150));
@@ -69,53 +76,61 @@ Future<void> _shot(WidgetTester tester, String name) => expectLater(find.byType(
 void main() {
   for (final (theme, mode) in [(1, 'light'), (2, 'dark')]) {
     testWidgets('inbox $mode', (tester) async {
-      await _boot(tester, theme: theme);
+      await boot(tester, theme: theme);
       await _shot(tester, 'inbox_$mode');
+      await tester.tap(find.bySemanticsLabel('Actions'));
+      await settle(tester);
+      await _shot(tester, 'fab_open_$mode');
+      await tester.tapAt(const Offset(40, 400));
+      await settle(tester);
       await tester.tap(find.bySemanticsLabel('Menu'));
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'drawer_$mode');
     });
 
     testWidgets('thread $mode', (tester) async {
-      final c = await _boot(tester, theme: theme);
+      final c = await boot(tester, theme: theme);
       c.read(routerProvider).push('/thread/t3?hero=3');
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'thread_$mode');
+      await tester.tap(find.bySemanticsLabel('More'));
+      await settle(tester);
+      await _shot(tester, 'thread_menu_$mode');
     });
 
     testWidgets('compose $mode', (tester) async {
-      final c = await _boot(tester, theme: theme);
+      final c = await boot(tester, theme: theme);
       c.read(routerProvider).push('/compose');
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'compose_$mode');
       final quill = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
       quill.document.insert(0, 'Hi Adaeze,\n\nThanks for the comments. Clause 4 works for us; I will send the signed copy on Friday.');
       quill.formatText(0, 10, Attribute.bold);
       await tester.tap(find.bySemanticsLabel('Formatting'));
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'compose_typing_$mode');
       await tester.tap(find.bySemanticsLabel('More'));
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'compose_menu_$mode');
     });
 
     testWidgets('settings $mode', (tester) async {
-      final c = await _boot(tester, theme: theme);
+      final c = await boot(tester, theme: theme);
       c.read(routerProvider).push('/settings');
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'settings_$mode');
       c.read(routerProvider).push('/settings/account/a1');
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'account_$mode');
     });
 
     testWidgets('onboarding $mode', (tester) async {
-      await _boot(tester, theme: theme, accounts: const []);
+      await boot(tester, theme: theme, accounts: const []);
       await _shot(tester, 'welcome_$mode');
       await tester.tap(find.text('Add account'));
-      await _settle(tester);
+      await settle(tester);
       await tester.enterText(find.byType(TextField).first, 'nathaniel@bridgewoodinvestment.ng');
-      await _settle(tester);
+      await settle(tester);
       await _shot(tester, 'add_email_$mode');
     });
   }

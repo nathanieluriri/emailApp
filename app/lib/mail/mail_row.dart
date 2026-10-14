@@ -10,11 +10,22 @@ import 'format.dart';
 import 'models.dart';
 
 class MailRow extends StatelessWidget {
-  const MailRow({super.key, required this.message, required this.onTap, required this.onStar, this.onArchive, this.showRecipient = false});
+  const MailRow({
+    super.key,
+    required this.message,
+    required this.onTap,
+    required this.onStar,
+    this.onArchive,
+    this.onSelect,
+    this.selected = false,
+    this.showRecipient = false,
+  });
   final Message message;
   final VoidCallback onTap;
   final VoidCallback onStar;
   final VoidCallback? onArchive;
+  final VoidCallback? onSelect;
+  final bool selected;
   final bool showRecipient;
 
   @override
@@ -27,16 +38,40 @@ class MailRow extends StatelessWidget {
       onTap: onTap,
       semanticLabel: '${m.from.display}, ${m.subject}',
       washRadius: 14,
-      child: Container(
+      onLongPress: onSelect,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
         margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
         padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
-        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
+        decoration: BoxDecoration(color: selected ? AppColors.accentMuted : AppColors.surface, borderRadius: BorderRadius.circular(14)),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Hero(
-              tag: 'avatar-${m.id}',
-              child: Avatar(name: m.outgoing && m.to.isNotEmpty ? m.to.first.display : m.from.display),
+            PaperPress(
+              onTap: onSelect,
+              enabled: onSelect != null,
+              feel: Feel.turn,
+              semanticLabel: selected ? 'Deselect' : 'Select',
+              washRadius: 20,
+              child: Hero(
+                tag: 'avatar-${m.id}',
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  transitionBuilder: (child, a) => RotationTransition(
+                    turns: Tween(begin: 0.5, end: 1.0).animate(a),
+                    child: ScaleTransition(scale: a, child: child),
+                  ),
+                  child: selected
+                      ? Container(
+                          key: const ValueKey('check'),
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(color: AppColors.accentBright, shape: BoxShape.circle),
+                          child: Icon(LucideIcons.check, size: 20, color: AppColors.onAccentBright),
+                        )
+                      : Avatar(key: const ValueKey('avatar'), name: m.outgoing && m.to.isNotEmpty ? m.to.first.display : m.from.display),
+                ),
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -109,7 +144,7 @@ class MailRow extends StatelessWidget {
         ),
       ),
     );
-    if (onArchive == null) return row;
+    if (onArchive == null || selected) return row;
     return SwipeActions(id: m.id, onArchive: onArchive!, onStar: onStar, starred: m.starred, child: row);
   }
 }

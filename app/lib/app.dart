@@ -6,6 +6,8 @@ import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'accounts/accounts_controller.dart';
+import 'core/brand.dart';
+import 'core/opening.dart';
 import 'core/providers.dart';
 import 'core/quire/theme/colors.dart';
 import 'core/router.dart';
@@ -64,7 +66,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     final dark = mode == ThemeMode.dark || (mode == ThemeMode.system && platform == Brightness.dark);
     AppColors.current = dark ? AppColors.dark : AppColors.light;
     return MaterialApp.router(
-      title: 'Bridgewood Mail',
+      title: kAppName,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(AppColors.current),
       routerConfig: ref.watch(routerProvider),
@@ -74,7 +76,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         GlobalCupertinoLocalizations.delegate,
         FlutterQuillLocalizations.delegate,
       ],
-      builder: (context, child) => KeyedSubtree(key: ValueKey(dark), child: child!),
+      builder: (context, child) => Opening(
+        child: KeyedSubtree(key: ValueKey(dark), child: child!),
+      ),
     );
   }
 }

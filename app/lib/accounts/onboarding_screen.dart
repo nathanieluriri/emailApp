@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/api/api_client.dart';
+import '../core/brand.dart';
 import '../core/config.dart';
 import '../core/providers.dart';
 import '../core/quire/theme/colors.dart';
@@ -322,12 +323,12 @@ class _Welcome extends StatelessWidget {
     child: Column(
       children: [
         const Spacer(flex: 3),
-        Image.asset('assets/brand/quire-mark.png', width: 104, height: 104, filterQuality: FilterQuality.medium),
+        const BrandMark(size: 104),
         const SizedBox(height: 16),
-        Text('Bridgewood Mail', style: AppText.markName.copyWith(color: AppColors.ink)),
+        const Wordmark(),
         const SizedBox(height: 10),
         Text(
-          'Your company mail, on your own server.',
+          'Your company mail, gathered and sent from your own server.',
           textAlign: TextAlign.center,
           style: AppText.bodyTight.copyWith(color: AppColors.inkSoft, fontSize: 15),
         ),

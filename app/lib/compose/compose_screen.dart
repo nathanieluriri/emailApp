@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 
 import '../accounts/accounts_controller.dart';
 import '../builder/upload.dart';
+import '../core/goo_menu.dart';
 import '../core/providers.dart';
 import '../core/quire/theme/colors.dart';
 import '../core/quire/theme/feedback.dart';
@@ -96,6 +97,12 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     _subject.addListener(_changed);
     _body.addListener(_changed);
     _load();
+    if (widget.args.design) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _body.setMode(BodyMode.builder);
+        _openAdvanced();
+      });
+    }
   }
 
   @override
@@ -439,30 +446,18 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
     _changed();
   }
 
-  Future<void> _menu() async {
-    final action = await showQuireSheet<String>(
-      context,
-      (sheet) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SheetRow(label: 'Preview', icon: LucideIcons.eye, onTap: () => Navigator.pop(sheet, 'preview')),
-          SheetRow(label: 'Send a test to myself', icon: LucideIcons.sendHorizontal, onTap: () => Navigator.pop(sheet, 'test')),
-          SheetRow(label: 'Use a template', icon: LucideIcons.layoutTemplate, onTap: () => Navigator.pop(sheet, 'template')),
-          SheetRow(label: 'Save as template', icon: LucideIcons.bookmarkPlus, onTap: () => Navigator.pop(sheet, 'save')),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('ADVANCED', style: AppText.chipLabel.copyWith(color: AppColors.inkFaint)),
-            ),
-          ),
-          SheetRow(label: 'Design with blocks', icon: LucideIcons.layoutPanelTop, onTap: () => Navigator.pop(sheet, 'builder')),
-          SheetRow(label: 'Write in HTML', icon: LucideIcons.code, onTap: () => Navigator.pop(sheet, 'html')),
-          SheetRow(label: 'Discard draft', icon: LucideIcons.trash2, destructive: true, onTap: () => Navigator.pop(sheet, 'discard')),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
+  Future<void> _menu(BuildContext anchor) async {
+    const actions = ['preview', 'test', 'template', 'save', 'builder', 'html', 'discard'];
+    final picked = await showGooMenu(anchor, const [
+      GooMenuItem(label: 'Preview', icon: LucideIcons.eye),
+      GooMenuItem(label: 'Send a test to myself', icon: LucideIcons.sendHorizontal),
+      GooMenuItem(label: 'Use a template', icon: LucideIcons.layoutTemplate),
+      GooMenuItem(label: 'Save as template', icon: LucideIcons.bookmarkPlus),
+      GooMenuItem(label: 'Design with blocks', icon: LucideIcons.layoutPanelTop),
+      GooMenuItem(label: 'Write in HTML', icon: LucideIcons.code),
+      GooMenuItem(label: 'Discard draft', icon: LucideIcons.trash2, destructive: true),
+    ]);
+    final action = picked == null ? null : actions[picked];
     if (!mounted) return;
     switch (action) {
       case 'preview':
@@ -562,7 +557,9 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
                     ? const Padding(padding: EdgeInsets.all(12), child: QuireSpinner(size: 22))
                     : IconPress(icon: LucideIcons.sendHorizontal, label: 'Send', color: AppColors.accentBright, onTap: _send),
               ),
-              IconPress(icon: LucideIcons.ellipsisVertical, label: 'More', onTap: _menu),
+              Builder(
+                builder: (anchor) => IconPress(icon: LucideIcons.ellipsisVertical, label: 'More', onTap: () => _menu(anchor)),
+              ),
             ],
           ),
           body: Column(

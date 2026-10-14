@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import 'brand.dart';
 import 'quire/painting/tab_goo_painter.dart';
 import 'quire/constants/gooey_fab.dart' show kGooAlphaThresholdMatrix, kGooBlurSigma;
 import 'quire/theme/colors.dart';
@@ -105,10 +106,7 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null)
-            Icon(icon, size: 56, color: AppColors.inkFaint)
-          else
-            Image.asset('assets/brand/quire-mark.png', width: 96, height: 96, filterQuality: FilterQuality.medium),
+          if (icon != null) Icon(icon, size: 56, color: AppColors.inkFaint) else const BrandMark(size: 88),
           const SizedBox(height: kSpace14),
           Text(
             title,
