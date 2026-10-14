@@ -23,7 +23,7 @@ npx wrangler secret put ONESIGNAL_REST_KEY
 npm run deploy
 ```
 
-Set `PUBLIC_HOST` in `wrangler.jsonc` to the host the app uses (workers.dev or a custom domain). Push notifications target devices tagged `worker_host=<PUBLIC_HOST>`. If it is empty, the worker uses the host of the last `/health` or `/senders` call.
+Set `PUBLIC_HOST` in `wrangler.jsonc` to the host the app uses (workers.dev or a custom domain). Push notifications target devices tagged `worker_host=<PUBLIC_HOST>` or carrying a `wh_<PUBLIC_HOST>` tag (the app adds one per saved account). If it is empty, the worker uses the host of the last `/health` or `/senders` call.
 
 ### Email Routing (receiving)
 

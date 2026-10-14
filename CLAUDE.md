@@ -1,6 +1,12 @@
 # emailApp
 
-An email client modeled on Gmail's design.
+An email client modeled on Gmail's design, with Quire's branding and motion.
+
+## Projects
+
+- `worker/`: Cloudflare Worker (`bridgewood-mail`): inbound mail, D1 storage, R2 files, sending, OneSignal push, REST API. Deploy with `npx wrangler deploy`.
+- `app/`: Flutter app (Android and iOS), Riverpod, go_router, dio, drift. Run `flutter analyze` and `flutter test` before committing.
+- Quire's theme, widgets and painters are copied into `app/lib/core/quire/` from `nathanieluriri/Mobile-experiments-flutter/quire`. Reuse them before writing new UI. Every tap gets a `Feel` haptic.
 
 ## Design references
 

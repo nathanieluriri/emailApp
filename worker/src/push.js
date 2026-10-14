@@ -18,7 +18,11 @@ export async function notifyNewMail(env, db) {
     headers: { authorization: `Key ${env.ONESIGNAL_REST_KEY}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       app_id: env.ONESIGNAL_APP_ID,
-      filters: [{ field: 'tag', key: 'worker_host', relation: '=', value: host }],
+      filters: [
+        { field: 'tag', key: 'worker_host', relation: '=', value: host },
+        { operator: 'OR' },
+        { field: 'tag', key: `wh_${host}`, relation: 'exists' },
+      ],
       headings: { en: single ? latest.from_name || latest.from_addr : `${recent.length} new emails` },
       contents: {
         en: single
