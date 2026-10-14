@@ -19,8 +19,11 @@ const _drop = 26.0;
 const _chipHeight = 36.0;
 const _rowHeight = _chipHeight + 14;
 
-/// The chip's words are gone before its fill starts to draw in, so nothing hangs off the goo as it gathers.
+/// The chip's words fade while its fill starts to draw in, and are gone before the fill has drawn past them.
 const _labelFade = Duration(milliseconds: 50);
+
+/// The solid text keeps this far behind the goo's leading edge, so the goo is seen to arrive first.
+const _inkLag = 6.0;
 
 /// How far the chip has drawn in, as a multiple of a drop, when it sets off. It leaps while still gathering, so the
 /// draw-in reads as a crouch before the leap rather than a pause.
@@ -54,6 +57,7 @@ class _Goo {
   bool get shown => _fill.target > 0;
   bool get hopping => _slot != null;
   bool get pouring => _slot != null && _spread;
+  bool get leaping => _slot != null && !_gathering;
 
   /// Rests on [chip], condensing there as a drop first when no goo was showing.
   void restOn(Rect chip, double now) {
@@ -77,10 +81,9 @@ class _Goo {
     _slot = slot;
     _gathering = true;
     _spread = false;
-    final start = now + _labelFade.inMicroseconds / 1e6;
-    _width.sendTo(_drop, start, _gather);
-    _height.sendTo(_drop, start, _gather);
-    _corner.sendTo(_drop / 2, start, _gather);
+    _width.sendTo(_drop, now, _gather);
+    _height.sendTo(_drop, now, _gather);
+    _corner.sendTo(_drop / 2, now, _gather);
   }
 
   /// Draws in to a drop where it is and dries up.
@@ -97,7 +100,7 @@ class _Goo {
   bool step(double now) {
     final slot = _slot;
     if (slot == null) return false;
-    final landing = Offset(slot.left + 6 + _drop / 2, slot.center.dy);
+    final landing = Offset(slot.left + _drop / 2, slot.center.dy);
     if (_gathering) {
       if (_width.valueAt(now) > _drop * _leapAt) return false;
       _gathering = false;
@@ -348,7 +351,7 @@ class DomainFieldState extends State<DomainField> with SingleTickerProviderState
     return (
       at: Offset(x, line.start.dy),
       width: width,
-      slot: Rect.fromLTRB(x - 6, line.start.dy - 5, right + 6, line.start.dy + line.height + 5),
+      slot: Rect.fromLTRB(x, line.start.dy - 5, right + 6, line.start.dy + line.height + 5),
     );
   }
 
@@ -382,7 +385,7 @@ class DomainFieldState extends State<DomainField> with SingleTickerProviderState
   /// True while the goo is on its way into the field, when it is drawn over the field's outline so the outline does
   /// not cut it in two. Once all of it is inside, it goes under the text.
   bool _over(CellGoo goo) {
-    if (!_goo.hopping) return false;
+    if (!_goo.leaping) return false;
     final inner = _rectOf(_field)?.deflate(3);
     if (inner == null) return false;
     final body = goo.body;
@@ -401,7 +404,9 @@ class DomainFieldState extends State<DomainField> with SingleTickerProviderState
     final over = _over(goo);
     final style = _line?.style;
     final restWidth = rest == null ? 0.0 : _line?.widthOf(rest) ?? 0.0;
-    final poured = ghost == null || !_goo.pouring || restWidth == 0 ? 0.0 : ((goo.body.right - ghost.at.dx) / restWidth).clamp(0.0, 1.0);
+    final poured = ghost == null || !_goo.pouring || restWidth == 0
+        ? 0.0
+        : ((goo.body.right - _inkLag - ghost.at.dx) / restWidth).clamp(0.0, 1.0);
     return Listener(
       onPointerDown: (e) {
         _down = e.position;
@@ -435,8 +440,8 @@ class DomainFieldState extends State<DomainField> with SingleTickerProviderState
                   child: AnimatedAlign(
                     alignment: Alignment.topLeft,
                     heightFactor: _rest != null || _hopping != null ? 1 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOutCubic,
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeInOutCubic,
                     child: SizedBox(
                       height: _rowHeight,
                       child: Padding(
