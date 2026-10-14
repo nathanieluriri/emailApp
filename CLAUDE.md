@@ -4,7 +4,7 @@ An email client modeled on Gmail's design.
 
 ## Design references
 
-- `design/gmail/web/`: wide (desktop) layouts: inbox tabs, promotions, spam search, spam message view.
+- `design/gmail/web/`: wide (desktop) layouts: inbox tabs, promotions, sent and spam search, thread view (collapsed and expanded), HTML message, spam message.
 - `design/gmail/mobile/`: narrow (phone, dark theme) layouts: primary inbox, promotions, navigation drawer, thread view and overflow menu, reply compose, snooze tip, sent and starred filters.
 
 Match these references for layout, spacing, and behavior before inventing new UI.
