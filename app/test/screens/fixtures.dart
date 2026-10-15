@@ -22,6 +22,7 @@ Map<String, dynamic> message(
   Map<String, Object>? to,
   List<Map<String, Object>>? participants,
   List<Map<String, Object>>? reactions,
+  List<Map<String, Object>>? files,
 }) => {
   'id': id,
   'threadId': 't$id',
@@ -43,11 +44,13 @@ Map<String, dynamic> message(
   'threadCount': count,
   'labels': ['inbox'],
   'text': ?text,
-  'attachments': attachment
-      ? [
-          {'id': 'a1', 'filename': 'Statement-Q3.pdf', 'mimeType': 'application/pdf', 'size': 248000},
-        ]
-      : [],
+  'attachments':
+      files ??
+      (attachment
+          ? [
+              {'id': 'a1', 'filename': 'Statement-Q3.pdf', 'mimeType': 'application/pdf', 'size': 248000},
+            ]
+          : []),
 };
 
 final inbox = [
@@ -148,6 +151,10 @@ final thread = {
         140,
         read: true,
         attachment: true,
+        files: [
+          {'id': 'img1', 'filename': 'Screenshot_2026-10-14-Lekki-site-visit.jpg', 'mimeType': 'image/jpeg', 'size': 25390},
+          {'id': 'a1', 'filename': 'Statement-Q3.pdf', 'mimeType': 'application/pdf', 'size': 248000},
+        ],
         to: {'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri'},
         reactions: [
           {'emoji': '🎉', 'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri', 'mine': true},

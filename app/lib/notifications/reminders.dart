@@ -37,9 +37,10 @@ abstract final class Reminders {
 
   static NotificationDetails _mail(String account, List<String> lines, String title) => NotificationDetails(
     android: AndroidNotificationDetails(
-      'mail',
+      'new_mail',
       'New mail',
       channelDescription: 'Every new email as it arrives',
+      sound: const RawResourceAndroidNotificationSound('quirepost_mail'),
       importance: Importance.high,
       priority: Priority.high,
       color: _accent,

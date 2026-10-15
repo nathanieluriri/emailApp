@@ -28,6 +28,15 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quirepost/files").setMethodCallHandler { call, result ->
+            if (call.method != "pdfPage") return@setMethodCallHandler result.notImplemented()
+            val path = call.argument<String>("path")
+            val width = call.argument<Int>("width") ?: 720
+            Thread {
+                val png = path?.let { runCatching { FilePreviews.pdfPage(it, width) }.getOrNull() }
+                runOnUiThread { result.success(png) }
+            }.start()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

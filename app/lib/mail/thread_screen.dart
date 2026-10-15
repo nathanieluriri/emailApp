@@ -13,7 +13,7 @@ import '../core/quire/theme/feedback.dart';
 import '../core/quire/theme/typography.dart';
 import '../core/quire/widgets/press_fade.dart';
 import '../core/widgets.dart';
-import 'attachment_chip.dart';
+import 'attachment_card.dart';
 import 'format.dart';
 import 'html_view.dart';
 import 'label_picker.dart';
@@ -511,7 +511,7 @@ class _MessageCardState extends State<_MessageCard> {
               if (m.attachments.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                  child: Wrap(spacing: 8, runSpacing: 8, children: [for (final a in m.attachments) AttachmentChip(attachment: a)]),
+                  child: AttachmentCards(attachments: m.attachments),
                 ),
               if (widget.reactions.isNotEmpty)
                 Padding(

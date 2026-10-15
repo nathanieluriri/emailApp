@@ -19,6 +19,7 @@ import '../core/quire/theme/typography.dart';
 import '../core/quire/widgets/press_fade.dart';
 import '../core/quire/widgets/quire_spinner.dart';
 import '../core/widgets.dart';
+import '../mail/attachment_card.dart';
 import '../mail/format.dart';
 import '../mail/inbox_screen.dart' show composeFlight;
 import '../mail/models.dart';
@@ -708,21 +709,23 @@ class _ComposeScreenState extends ConsumerState<ComposeScreen> {
                           divider,
                           if (_attachments.isNotEmpty)
                             SizedBox(
-                              height: 52,
+                              height: 160,
                               child: ListView(
                                 scrollDirection: Axis.horizontal,
-                                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                                 children: [
-                                  for (final a in _attachments)
+                                  for (final (i, a) in _attachments.indexed)
                                     Padding(
                                       padding: const EdgeInsets.only(right: 8),
-                                      child: InputChip(
-                                        avatar: Icon(LucideIcons.paperclip, size: 16, color: AppColors.accentBright),
-                                        label: Text(
-                                          '${a.name}  ${fileSize(a.bytes.length)}',
-                                          style: AppText.label.copyWith(color: AppColors.ink),
+                                      child: SizedBox(
+                                        width: 172,
+                                        child: AttachmentCard(
+                                          key: ObjectKey(a),
+                                          attachment: Attachment(id: 'draft-$i', filename: a.name, mimeType: a.type, size: a.bytes.length),
+                                          bytes: a.bytes,
+                                          previewHeight: 96,
+                                          onRemove: () => setState(() => _attachments.remove(a)),
                                         ),
-                                        onDeleted: () => setState(() => _attachments.remove(a)),
                                       ),
                                     ),
                                 ],
