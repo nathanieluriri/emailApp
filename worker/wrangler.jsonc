@@ -30,6 +30,7 @@
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }],
       "vars": {
         "ALLOWED_DOMAIN": "uriri.com.ng",
+        "WORKER_NAME": "uriri-mail",
         "PUBLIC_HOST": "uriri-mail.uririnathaniel.workers.dev",
         "CF_ZONE_ID": "95642a2e71d9057796832f36133d74f5"
       }

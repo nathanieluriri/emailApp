@@ -25,7 +25,7 @@ npm run deploy
 
 ### Another domain
 
-Each domain runs the same code as its own worker, declared as a wrangler environment with its own D1, R2 and vars. `uriri.com.ng` is `--env uriri` (worker `uriri-mail`):
+Each domain runs the same code as its own worker, declared as a wrangler environment with its own D1, R2 and vars. Set `WORKER_NAME` to the environment's worker name, or the routing rules it creates point at `bridgewood-mail`. `uriri.com.ng` is `--env uriri` (worker `uriri-mail`):
 
 ```sh
 npx wrangler d1 execute uriri-mail --remote --file=schema.sql --env uriri
