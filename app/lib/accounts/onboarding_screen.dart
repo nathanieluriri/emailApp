@@ -130,7 +130,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       if (!_address.endsWith('@${senders.domain.toLowerCase()}')) {
         return _fail('This server only sends from @${senders.domain}. Go back and use an address on that domain.');
       }
-      if (_name.text.isEmpty) _name.text = senders.name.isNotEmpty ? senders.name : _suggestName(_address);
+      if (_name.text.isEmpty) {
+        final name = senders.name.isNotEmpty ? senders.name : _suggestName(_address);
+        // With a caret already placed, the autofocused field does not raise Android's selection handle.
+        _name.value = TextEditingValue(text: name, selection: TextSelection.collapsed(offset: name.length));
+      }
       Feel.commit.ring();
       setState(() => _busy = false);
       _go(_Step.profile);
