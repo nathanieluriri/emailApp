@@ -1,7 +1,10 @@
 import 'package:intl/intl.dart';
 
+/// The moment dates are shown against. Screenshot tests pin it to their fixtures' day.
+DateTime Function() formatClock = DateTime.now;
+
 String shortDate(DateTime d) {
-  final now = DateTime.now();
+  final now = formatClock();
   if (d.year == now.year && d.month == now.month && d.day == now.day) return DateFormat.Hm().format(d);
   if (d.year == now.year) return DateFormat('d MMM').format(d);
   return DateFormat('d/M/yy').format(d);

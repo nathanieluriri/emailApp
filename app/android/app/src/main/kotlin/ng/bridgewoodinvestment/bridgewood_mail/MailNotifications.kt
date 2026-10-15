@@ -3,6 +3,7 @@ package ng.bridgewoodinvestment.bridgewood_mail
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -10,6 +11,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
@@ -25,7 +27,9 @@ import androidx.core.graphics.drawable.IconCompat
 import org.json.JSONObject
 
 object MailNotifications {
-    const val CHANNEL = "mail"
+    // Android keeps the sound a channel was created with, so the Quirepost sound came with a new channel id.
+    const val CHANNEL = "new_mail"
+    private const val OLD_CHANNEL = "mail"
     const val ACTION_ARCHIVE = "quirepost.ARCHIVE"
     const val ACTION_READ = "quirepost.READ"
     const val ACTION_REPLY = "quirepost.REPLY"
@@ -40,16 +44,28 @@ object MailNotifications {
 
     private class Line(val from: String, val out: Boolean, val text: String, val at: Long)
 
+    fun sound(context: Context): Uri =
+        Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${context.packageName}/${R.raw.quirepost_mail}")
+
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.deleteNotificationChannel(OLD_CHANNEL)
         val channel = NotificationChannel(CHANNEL, "New mail", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Every new email as it arrives"
             enableVibration(true)
             enableLights(true)
             lightColor = accent(context)
             setShowBadge(true)
+            setSound(
+                sound(context),
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
         }
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        manager.createNotificationChannel(channel)
     }
 
     fun style(context: Context, builder: NotificationCompat.Builder, id: Int, data: JSONObject): NotificationCompat.Builder {
@@ -65,6 +81,7 @@ object MailNotifications {
 
         builder
             .setChannelId(CHANNEL)
+            .setSound(sound(context))
             .setCategory(NotificationCompat.CATEGORY_EMAIL)
             .setColor(accent(context))
             .setLargeIcon(if (digest) null else avatar(context, latest.from))
@@ -133,7 +150,7 @@ object MailNotifications {
             context.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL)
                 ?.takeIf { it.importance >= NotificationManager.IMPORTANCE_DEFAULT }?.sound
         } else {
-            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            sound(context)
         }
         sound?.let { RingtoneManager.getRingtone(context, it)?.play() }
     }

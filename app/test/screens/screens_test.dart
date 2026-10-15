@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:bridgewood_mail/accounts/account.dart';
 import 'package:bridgewood_mail/accounts/accounts_controller.dart';
 import 'package:bridgewood_mail/accounts/health_check.dart';
 import 'package:bridgewood_mail/app.dart';
 import 'package:bridgewood_mail/compose/compose_args.dart';
+import 'package:bridgewood_mail/mail/attachments.dart';
+import 'package:bridgewood_mail/mail/format.dart';
 import 'package:bridgewood_mail/mail/live_sync.dart';
 import 'package:bridgewood_mail/mail/models.dart';
 import 'package:bridgewood_mail/mail/outbox.dart';
@@ -81,6 +86,7 @@ Future<ProviderContainer> boot(
   PushStatus push = _subscribed,
   bool settled = true,
 }) async {
+  formatClock = () => DateTime(2026, 10, 14, 12, 30);
   tester.view.physicalSize = const Size(1080, 2340);
   tester.view.devicePixelRatio = 2.75;
   addTearDown(tester.view.reset);
@@ -95,6 +101,7 @@ Future<ProviderContainer> boot(
       apiProvider.overrideWith((ref) => ApiClient('https://w.test', 'k')..dio.httpClientAdapter = FakeWorker()),
       serverDomainProvider.overrideWith((ref, url) async => 'bridgewoodinvestment.ng'),
       liveSyncProvider.overrideWith(_Live.new),
+      attachmentFileProvider.overrideWith((ref, id) async => File(_photo)),
     ],
   );
   addTearDown(container.dispose);
@@ -111,6 +118,8 @@ Future<void> settle(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 150));
   }
 }
+
+const _photo = 'test/screens/fixtures/site-photo.jpg';
 
 Future<void> _shot(WidgetTester tester, String name) => expectLater(find.byType(App), matchesGoldenFile('goldens/$name.png'));
 
@@ -192,6 +201,27 @@ void main() {
       await tester.tap(find.bySemanticsLabel('More'));
       await settle(tester);
       await _shot(tester, 'compose_menu_$mode');
+    });
+
+    testWidgets('compose attachments $mode', (tester) async {
+      final c = await boot(tester, theme: theme);
+      c
+          .read(routerProvider)
+          .push(
+            '/compose',
+            extra: ComposeArgs(
+              attachments: [
+                {
+                  'filename': 'Screenshot_2026-10-14-Lekki-site-visit.jpg',
+                  'type': 'image/jpeg',
+                  'content': base64Encode(File(_photo).readAsBytesSync()),
+                },
+                {'filename': 'Statement-Q3.pdf', 'type': 'application/pdf', 'content': base64Encode(utf8.encode('%PDF-1.4'))},
+              ],
+            ),
+          );
+      await settle(tester);
+      await _shot(tester, 'compose_attachments_$mode');
     });
 
     testWidgets('reply $mode', (tester) async {
