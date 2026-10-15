@@ -23,6 +23,16 @@ npx wrangler secret put ONESIGNAL_REST_KEY
 npm run deploy
 ```
 
+### Another domain
+
+Each domain runs the same code as its own worker, declared as a wrangler environment with its own D1, R2 and vars. `uriri.com.ng` is `--env uriri` (worker `uriri-mail`):
+
+```sh
+npx wrangler d1 execute uriri-mail --remote --file=schema.sql --env uriri
+npx wrangler secret put API_KEYS --env uriri    # likewise ONESIGNAL_APP_ID, ONESIGNAL_REST_KEY, CF_API_TOKEN
+npx wrangler deploy --env uriri
+```
+
 Set `PUBLIC_HOST` in `wrangler.jsonc` to the host the app uses (workers.dev or a custom domain). Pushes carry it so the app can open the right account. If it is empty, the worker uses the host of the last `/health` or `/senders` call.
 
 ### Email Routing (receiving)

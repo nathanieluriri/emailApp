@@ -16,5 +16,23 @@
     "ALLOWED_DOMAIN": "bridgewoodinvestment.ng",
     "PUBLIC_HOST": "bridgewood-mail.uririnathaniel.workers.dev",
     "CF_ZONE_ID": "549e2bfed4c42e88c9f2729f23ed9eeb"
+  },
+  "env": {
+    "uriri": {
+      "name": "uriri-mail",
+      "triggers": { "crons": ["*/30 * * * *"] },
+      "send_email": [{ "name": "EMAIL" }],
+      "d1_databases": [
+        { "binding": "DB", "database_name": "uriri-mail", "database_id": "52725013-9e51-4f6b-92fc-e4bf727b431d" }
+      ],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "uriri-mail" }],
+      "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "MailboxHub" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }],
+      "vars": {
+        "ALLOWED_DOMAIN": "uriri.com.ng",
+        "PUBLIC_HOST": "uriri-mail.uririnathaniel.workers.dev",
+        "CF_ZONE_ID": "95642a2e71d9057796832f36133d74f5"
+      }
+    }
   }
 }
