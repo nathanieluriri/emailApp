@@ -70,7 +70,7 @@ npx wrangler secret put ROUTING_KEYS   # optional: only these API keys may chang
 2. Settings, Keys and IDs: copy the App ID and create a REST API key, then set both secrets above.
 3. Put the same App ID in the Flutter app config.
 
-Each new mail notifies the phones registered for the mailbox that received it (`PUT /devices/:deviceId`), with one notification per conversation, so a busy thread updates in place instead of stacking. The payload carries the sender, subject, mailbox address and that mailbox's last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per mailbox with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail to the same mailbox is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `new_mail`, a high-importance channel the app creates with the Quirepost sound (`res/raw/quirepost_mail.ogg`).
+Each new mail notifies the phones registered for the mailbox that received it (`PUT /devices/:deviceId`), with one notification per conversation, so a busy thread updates in place instead of stacking. The payload carries the sender, subject, mailbox address and that mailbox's last few messages of the thread, which the app renders as a Gmail-style notification. Notifications are grouped per mailbox with an "N new emails" summary, and mail that arrives within 60 seconds of earlier mail to the same mailbox is delivered quietly (no sound on Android, `passive` on iOS), so a burst rings once. The `existing_android_channel_id` is `mail_chime`, a high-importance channel the app creates with the Quirepost sound (`res/raw/quirepost_mail.ogg`).
 
 ### Unread reminders
 

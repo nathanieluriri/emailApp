@@ -27,9 +27,10 @@ import androidx.core.graphics.drawable.IconCompat
 import org.json.JSONObject
 
 object MailNotifications {
-    // Android keeps the sound a channel was created with, so the Quirepost sound came with a new channel id.
-    const val CHANNEL = "new_mail"
-    private const val OLD_CHANNEL = "mail"
+    // Android keeps the sound a channel was created with, so the Quirepost sound came with a new channel id. The sound
+    // is named rather than numbered, so a new recording under the same name plays without another channel.
+    const val CHANNEL = "mail_chime"
+    private val OLD_CHANNELS = listOf("mail", "new_mail")
     const val ACTION_ARCHIVE = "quirepost.ARCHIVE"
     const val ACTION_READ = "quirepost.READ"
     const val ACTION_REPLY = "quirepost.REPLY"
@@ -44,13 +45,15 @@ object MailNotifications {
 
     private class Line(val from: String, val out: Boolean, val text: String, val at: Long)
 
-    fun sound(context: Context): Uri =
-        Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${context.packageName}/${R.raw.quirepost_mail}")
+    fun sound(context: Context): Uri = Uri.parse(
+        "${ContentResolver.SCHEME_ANDROID_RESOURCE}://${context.packageName}/raw/" +
+            context.resources.getResourceEntryName(R.raw.quirepost_mail),
+    )
 
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.deleteNotificationChannel(OLD_CHANNEL)
+        OLD_CHANNELS.forEach(manager::deleteNotificationChannel)
         val channel = NotificationChannel(CHANNEL, "New mail", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Every new email as it arrives"
             enableVibration(true)
