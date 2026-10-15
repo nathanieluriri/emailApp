@@ -11,6 +11,7 @@ import 'package:bridgewood_mail/mail/format.dart';
 import 'package:bridgewood_mail/mail/live_sync.dart';
 import 'package:bridgewood_mail/mail/models.dart';
 import 'package:bridgewood_mail/mail/outbox.dart';
+import 'package:bridgewood_mail/mail/quire.dart';
 import 'package:bridgewood_mail/core/api/api_client.dart';
 import 'package:bridgewood_mail/core/db/database.dart';
 import 'package:bridgewood_mail/core/providers.dart';
@@ -85,6 +86,7 @@ Future<ProviderContainer> boot(
   List<Account> accounts = const [_account, _second],
   PushStatus push = _subscribed,
   bool settled = true,
+  bool quire = false,
 }) async {
   formatClock = () => DateTime(2026, 10, 14, 12, 30);
   tester.view.physicalSize = const Size(1080, 2340);
@@ -101,7 +103,9 @@ Future<ProviderContainer> boot(
       apiProvider.overrideWith((ref) => ApiClient('https://w.test', 'k')..dio.httpClientAdapter = FakeWorker()),
       serverDomainProvider.overrideWith((ref, url) async => 'bridgewoodinvestment.ng'),
       liveSyncProvider.overrideWith(_Live.new),
-      attachmentFileProvider.overrideWith((ref, id) async => File(_photo)),
+      attachmentFileProvider.overrideWith((ref, id) async => File('test/screens/fixtures/${_fixtures[id]?.$1 ?? 'site-photo.jpg'}')),
+      attachmentPreviewProvider.overrideWith((ref, key) async => _previews[key.id]),
+      quireInstalledProvider.overrideWith((ref) async => quire),
     ],
   );
   addTearDown(container.dispose);
@@ -119,11 +123,27 @@ Future<void> settle(WidgetTester tester) async {
   }
 }
 
-const _photo = 'test/screens/fixtures/site-photo.jpg';
+/// The thread's attachments, as Quire's own sample documents, by attachment id.
+const _fixtures = {
+  'img1': ('site-photo.jpg', 'image/jpeg'),
+  'doc1': ('house-style.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+  'xls1': ('press-run-costs.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+  'ppt1': ('press-day-briefing.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'),
+};
+
+/// Made before any screen is pumped, through the app's own preview pipeline, so a screenshot never catches one mid-way.
+final _previews = <String, Preview?>{};
 
 Future<void> _shot(WidgetTester tester, String name) => expectLater(find.byType(App), matchesGoldenFile('goldens/$name.png'));
 
 void main() {
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    for (final MapEntry(key: id, value: (file, type)) in _fixtures.entries) {
+      _previews[id] = await previewOfBytes(File('test/screens/fixtures/$file').readAsBytesSync(), name: file, type: type);
+    }
+  });
+
   for (final (theme, mode) in [(1, 'light'), (2, 'dark')]) {
     testWidgets('inbox $mode', (tester) async {
       await boot(tester, theme: theme);
@@ -203,6 +223,19 @@ void main() {
       await _shot(tester, 'compose_menu_$mode');
     });
 
+    testWidgets('open in quire $mode', (tester) async {
+      final c = await boot(tester, theme: theme, quire: true);
+      c.read(routerProvider).push('/thread/t3?hero=3');
+      await settle(tester);
+      final card = find.bySemanticsLabel(RegExp('^Open House Style'));
+      await tester.ensureVisible(card);
+      await settle(tester);
+      await tester.tap(card);
+      await settle(tester);
+      expect(find.text('Open in Quire'), findsOneWidget);
+      await _shot(tester, 'open_in_quire_$mode');
+    });
+
     testWidgets('compose attachments $mode', (tester) async {
       final c = await boot(tester, theme: theme);
       c
@@ -211,15 +244,14 @@ void main() {
             '/compose',
             extra: ComposeArgs(
               attachments: [
-                {
-                  'filename': 'Screenshot_2026-10-14-Lekki-site-visit.jpg',
-                  'type': 'image/jpeg',
-                  'content': base64Encode(File(_photo).readAsBytesSync()),
-                },
-                {'filename': 'Statement-Q3.pdf', 'type': 'application/pdf', 'content': base64Encode(utf8.encode('%PDF-1.4'))},
+                for (final (file, type) in [('subscribers.csv', 'text/csv'), ('bindery-notes.md', 'text/markdown')])
+                  {'filename': file, 'type': type, 'content': base64Encode(File('test/screens/fixtures/$file').readAsBytesSync())},
               ],
             ),
           );
+      await settle(tester);
+      // Quire's loader reads each file on an isolate of its own, in real time.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(seconds: 2)));
       await settle(tester);
       await _shot(tester, 'compose_attachments_$mode');
     });

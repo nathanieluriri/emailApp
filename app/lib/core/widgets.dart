@@ -368,6 +368,7 @@ class SheetRow extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.icon,
+    this.leading,
     this.destructive = false,
     this.trailing,
     this.selected = false,
@@ -375,6 +376,9 @@ class SheetRow extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
   final IconData? icon;
+
+  /// Drawn where [icon] goes, for a mark that is not an icon.
+  final Widget? leading;
   final bool destructive;
   final bool selected;
   final Widget? trailing;
@@ -393,7 +397,13 @@ class SheetRow extends StatelessWidget {
         color: selected ? AppColors.accentMuted : null,
         child: Row(
           children: [
-            if (icon != null) ...[Icon(icon, size: 20, color: color), const SizedBox(width: 16)],
+            if (leading != null) ...[
+              SizedBox.square(dimension: 20, child: leading),
+              const SizedBox(width: 16),
+            ] else if (icon != null) ...[
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 16),
+            ],
             Expanded(
               child: Text(label, style: AppText.menuRow.copyWith(color: color)),
             ),

@@ -2,10 +2,14 @@ package ng.bridgewoodinvestment.bridgewood_mail
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 import java.security.MessageDigest
+
+private const val QUIRE = "ng.com.uriri.quire"
 
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
@@ -29,19 +33,34 @@ class MainActivity : FlutterActivity() {
             }
         }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quirepost/files").setMethodCallHandler { call, result ->
-            if (call.method != "pdfPage") return@setMethodCallHandler result.notImplemented()
-            val path = call.argument<String>("path")
-            val width = call.argument<Int>("width") ?: 720
-            Thread {
-                val png = path?.let { runCatching { FilePreviews.pdfPage(it, width) }.getOrNull() }
-                runOnUiThread { result.success(png) }
-            }.start()
+            when (call.method) {
+                "pdfPage" -> {
+                    val path = call.argument<String>("path")
+                    val width = call.argument<Int>("width") ?: 720
+                    Thread {
+                        val png = path?.let { runCatching { FilePreviews.pdfPage(it, width) }.getOrNull() }
+                        runOnUiThread { result.success(png) }
+                    }.start()
+                }
+                "quireInstalled" -> result.success(packageManager.getLaunchIntentForPackage(QUIRE) != null)
+                "openInQuire" -> result.success(openInQuire(call.argument<String>("path")!!, call.argument<String>("type")!!))
+                else -> result.notImplemented()
+            }
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         composeOf(intent)?.let { channel?.invokeMethod("launch", it) }
+    }
+
+    private fun openInQuire(path: String, type: String): Boolean {
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", File(path))
+        val view = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, type)
+            .setPackage(QUIRE)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching { startActivity(view) }.isSuccess
     }
 
     // ANDROID_ID is fixed per device and signing key, so a reinstall keeps the same OneSignal user.

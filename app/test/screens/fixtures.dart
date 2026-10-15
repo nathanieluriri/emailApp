@@ -153,7 +153,24 @@ final thread = {
         attachment: true,
         files: [
           {'id': 'img1', 'filename': 'Screenshot_2026-10-14-Lekki-site-visit.jpg', 'mimeType': 'image/jpeg', 'size': 25390},
-          {'id': 'a1', 'filename': 'Statement-Q3.pdf', 'mimeType': 'application/pdf', 'size': 248000},
+          {
+            'id': 'doc1',
+            'filename': 'House Style.docx',
+            'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'size': 11362,
+          },
+          {
+            'id': 'xls1',
+            'filename': 'Press Run Costs.xlsx',
+            'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'size': 9601,
+          },
+          {
+            'id': 'ppt1',
+            'filename': 'Press Day Briefing.pptx',
+            'mimeType': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'size': 15577,
+          },
         ],
         to: {'address': 'nathaniel@bridgewoodinvestment.ng', 'name': 'Nathaniel Uriri'},
         reactions: [
