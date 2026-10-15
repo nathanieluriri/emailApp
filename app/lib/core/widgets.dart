@@ -432,7 +432,10 @@ class SheetTitle extends StatelessWidget {
 /// A text prompt in a sheet, Quire's replacement for dialogs. Pops with the trimmed text.
 Future<String?> promptText(BuildContext context, {required String title, String initial = '', String action = 'Save', String? hint}) =>
     showQuireSheet<String>(context, (context) {
-      final controller = TextEditingController(text: initial);
+      // A caret already placed keeps the autofocused field from raising Android's selection handle.
+      final controller = TextEditingController.fromValue(
+        TextEditingValue(text: initial, selection: TextSelection.collapsed(offset: initial.length)),
+      );
       return Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: Column(
