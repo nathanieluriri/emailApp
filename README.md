@@ -1,4 +1,4 @@
-# Bridgewood Mail
+# Quirepost
 
 A self-hosted email client: a Cloudflare Worker that receives, stores and sends mail for your domain, plus a Flutter app for Android and iOS that reads it, with push notifications for new mail.
 
@@ -23,7 +23,7 @@ The app talks only to your worker. The worker keeps your mail in your own Cloudf
 | Item | Used for | Cost |
 |---|---|---|
 | A domain whose DNS is on Cloudflare | receiving and sending mail | the domain itself |
-| Cloudflare account | Worker, D1, R2, Email Routing, Email Service | free tiers cover personal use; check current Email Service pricing |
+| Cloudflare account | Worker, D1, R2, Email Routing, Email Service | receiving is free; sending to any address needs Workers Paid ($5 a month, 3,000 emails included) |
 | OneSignal account | push notifications | free tier |
 | Firebase project | Android push (through OneSignal) | free |
 | Apple Developer account | iOS only: push and installing on devices | paid yearly |
@@ -82,7 +82,7 @@ Open `worker/wrangler.jsonc` and replace the values that belong to the original 
 | `PUBLIC_HOST` | Host the app uses to reach the worker, for example `bridgewood-mail.<subdomain>.workers.dev`. Push notifications are targeted by this host. Leave it empty until you know the URL (step 2.6); the worker then uses the host of the last `/health` call. |
 | `CF_ZONE_ID` | Your domain's zone ID (dashboard, your domain, Overview, right column). Only needed for the catch-all switch. |
 | `SENDERS` (optional) | Comma-separated local parts offered as From addresses, e.g. `me,hello,support`. Default: `admin,info,support,noreply`. |
-| `WORKER_NAME` (optional) | Set this if you rename the worker in `name`, so the catch-all switch recognises it. |
+| `WORKER_NAME` (optional) | Set this if you rename the worker in `name`, so the routing rules it creates and the catch-all switch point at it. |
 
 If you rename the database, also change the name in the `db:init` script in `worker/package.json`.
 
@@ -133,7 +133,7 @@ Every entry in `checks` should be `true`. `onesignal: false` means the OneSignal
 ### 2.7 Receive mail (Email Routing)
 
 1. Dashboard, your domain, Email, Email Routing: enable it and let it add the MX and SPF records.
-2. Routing rules: add a custom address (e.g. `me@yourdomain.com`) with action **Send to a Worker**, worker `bridgewood-mail`. Repeat for each address you want in the app.
+2. Routing rules: add a custom address (e.g. `me@yourdomain.com`) with action **Send to a Worker**, worker `bridgewood-mail`. Repeat for each address you want in the app. With `CF_API_TOKEN` set, the worker adds this rule itself for every address the app uses.
 3. Optional: send everything to the worker by editing the catch-all rule the same way, or later from the app if `CF_API_TOKEN` is set.
 
 Remove any existing MX records from another mail provider first, or mail keeps going there.
@@ -201,7 +201,7 @@ The App ID is compiled into the app. Pass yours at build time:
 --dart-define=ONESIGNAL_APP_ID=<your OneSignal App ID>
 ```
 
-or change the default in `app/lib/core/config.dart`. While you are there, set `workerSubdomain` to your workers.dev subdomain so onboarding suggests your worker by default (otherwise pick **Use custom worker** and type the URL).
+or change the default in `app/lib/core/config.dart`. While you are there, set `workerSubdomain` to your workers.dev subdomain so onboarding suggests your worker by default (otherwise pick **Use a custom server** and type the URL).
 
 ### 4.3 Optional: your own package name
 
@@ -249,7 +249,7 @@ You can add several workers as separate accounts. They all push to the same devi
 | Mail does not arrive | Email Routing rule points at the worker; MX records are Cloudflare's; `npx wrangler tail` while sending. |
 | Sending fails | Email Service onboarding and DNS records (2.8); the From address must be on `ALLOWED_DOMAIN`. |
 | No push | OneSignal, Audience, Subscriptions: is the device subscribed with a `worker_host` tag matching `PUBLIC_HOST`? Then `npx wrangler tail` and look for `push failed`. On iOS, confirm the Push Notifications capability. |
-| No banner while the app is open | Expected: the app refreshes the inbox instead of showing a system notification. |
+| No system notification while the app is open | Expected: the app shows its own banner and updates the inbox instead. |
 
 ## Updating
 
@@ -260,3 +260,7 @@ cd ../app && flutter pub get && flutter build apk --release --dart-define=ONESIG
 ```
 
 If `worker/schema.sql` changed, run `npm run db:init` again in `worker/`. It only creates what is missing.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The bundled fonts (Inter and Quicksand, SIL Open Font License) and Noto Emoji Animation (CC BY 4.0) keep their own licenses.
